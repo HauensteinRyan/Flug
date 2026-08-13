@@ -74,10 +74,47 @@ function parseFlightInfo(subject, plainBody) {
     if (dates.length >= 4) break;
   }
 
+  // Times: "8:15am" / "8:15 AM" / "20:15". Collected in order of appearance
+  // so times[i] loosely pairs with dates[i] (airlines list segments in order).
+  const times = [];
+  const reTime = /\b(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)?\b/gi;
+  while ((m = reTime.exec(text)) !== null) {
+    let hour = parseInt(m[1], 10);
+    const minute = parseInt(m[2], 10);
+    const meridiem = (m[3] || '').toLowerCase();
+    if (hour > 23 || minute > 59) continue;
+    if (meridiem.indexOf('p') === 0 && hour < 12) hour += 12;
+    if (meridiem.indexOf('a') === 0 && hour === 12) hour = 0;
+    times.push({ hour: hour, minute: minute });
+    if (times.length >= 4) break;
+  }
+
   return {
     confirmationCode: confirmationCode,
     flights: flights,
     route: route,
     dates: dates,
+    times: times,
   };
+}
+
+/**
+ * Turn a parsed date string (possibly year-less, e.g. "Sat, Aug 15") into a
+ * Date, using the email's date to infer the year. A result more than ~2
+ * months before the email was received rolls over to the next year
+ * (December booking for a January trip).
+ */
+function resolveDate(dateStr, emailDate) {
+  const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun',
+                  'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  const m = dateStr.match(/(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:,?\s+(\d{4}))?/i);
+  if (!m) return null;
+  const month = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase());
+  const day = parseInt(m[2], 10);
+  let year = m[3] ? parseInt(m[3], 10) : emailDate.getFullYear();
+  let d = new Date(year, month, day);
+  if (!m[3] && d.getTime() < emailDate.getTime() - 60 * 24 * 60 * 60 * 1000) {
+    d = new Date(year + 1, month, day);
+  }
+  return d;
 }

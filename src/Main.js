@@ -47,17 +47,19 @@ function runFlightScan() {
   scan_(cfgInt('SEARCH_WINDOW_DAYS', 4), {
     notifyChat: true,
     forward: cfgBool('FORWARD_TO_FLIGHTY'),
+    calendar: cfgBool('ADD_TO_CALENDAR'),
   });
 }
 
 /**
- * Forward historical flight confirmations to Flighty (no Chat posts).
+ * Forward historical flight confirmations to Flighty (no Chat posts and no
+ * calendar events — past flights shouldn't clutter either).
  * Run from the editor, e.g. backfill(365). With no argument: 180 days.
  * Gmail sending quotas apply (~100 recipients/day on consumer accounts),
  * so very large backfills may need to be run across multiple days.
  */
 function backfill(days) {
-  scan_(days || 180, { notifyChat: false, forward: true });
+  scan_(days || 180, { notifyChat: false, forward: true, calendar: false });
 }
 
 function scan_(windowDays, opts) {
@@ -99,6 +101,15 @@ function scan_(windowDays, opts) {
           meta.forwarded = true;
         } catch (e) {
           console.error('Forward to Flighty failed for "' + message.getSubject() + '": ' + e);
+        }
+      }
+
+      meta.eventsCreated = 0;
+      if (opts.calendar && meta.kind === 'confirmation') {
+        try {
+          meta.eventsCreated = addToCalendar(message, parsed, meta);
+        } catch (e) {
+          console.error('Calendar update failed for "' + message.getSubject() + '": ' + e);
         }
       }
 

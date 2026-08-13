@@ -17,6 +17,16 @@ const DEFAULTS = {
   FORWARD_TO_FLIGHTY: 'true',
   FLIGHTY_ADDRESS: 'track@my.flightyapp.com',
 
+  // Create Google Calendar events for detected flights.
+  ADD_TO_CALENDAR: 'true',
+  // Calendar to add events to: empty = your default calendar, or a calendar
+  // ID (Google Calendar → calendar settings → "Integrate calendar") to keep
+  // flights in their own calendar.
+  CALENDAR_ID: '',
+  // Event length in hours when a departure time was parsed from the email.
+  // (When no time is found, an all-day event is created instead.)
+  FLIGHT_EVENT_HOURS: '3',
+
   // How far back (days) each scan looks. Already-processed messages are
   // remembered and skipped, so a small overlap window is all that's needed.
   SEARCH_WINDOW_DAYS: '4',

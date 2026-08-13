@@ -30,6 +30,9 @@ function postToChat(message, parsed, meta) {
   if (meta.forwarded) {
     field('EMAIL', 'Flighty', 'Forwarded to Flighty for import');
   }
+  if (meta.eventsCreated) {
+    field('EVENT_SEAT', 'Calendar', meta.eventsCreated + ' event(s) added to Google Calendar');
+  }
   widgets.push({
     buttonList: {
       buttons: [{ text: 'Open email in Gmail', onClick: { openLink: { url: gmailLink } } }],

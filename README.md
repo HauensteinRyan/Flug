@@ -8,6 +8,9 @@ and then:
    route, dates, confirmation code, and a link back to the email.
 2. **Auto-forwards the original email to Flighty** (`track@my.flightyapp.com`)
    so the trip populates in the Flighty app automatically.
+3. **Adds Google Calendar events** for each flight date — timed blocks when a
+   departure time could be parsed, all-day events otherwise, optionally in a
+   dedicated flights calendar.
 
 No servers, no cost, no third party reading your mail — everything runs in
 your Google account on a timer (every 30 minutes by default).
@@ -17,6 +20,7 @@ flowchart LR
     A[Airline email lands in Gmail] --> B[Flug scan\nevery 30 min]
     B -->|detect + parse| C[Card posted to\nGoogle Chat space]
     B -->|forward original| D[Flighty import\ntrack@my.flightyapp.com]
+    B -->|create events| F[Google Calendar]
     B -->|label| E[Gmail label\nFlug/Processed]
 ```
 
@@ -64,7 +68,7 @@ you're set.
 1. Go to [script.new](https://script.new) (signed in as the Gmail account
    that receives your confirmations).
 2. Create one file per file in [`src/`](src/) (`Config`, `Detect`, `Parse`,
-   `Chat`, `Main`) and paste the contents in.
+   `Chat`, `Calendar`, `Main`) and paste the contents in.
 3. Project Settings (⚙️) → check **Show "appsscript.json" manifest file** →
    replace its contents with [`src/appsscript.json`](src/appsscript.json)
    (adjust `timeZone` to yours).
@@ -104,6 +108,9 @@ All settings live in **Project Settings → Script Properties** (defaults in
 | `CHAT_WEBHOOK_URL` | *(empty)* | Google Chat incoming-webhook URL. Empty = no Chat posts. |
 | `FORWARD_TO_FLIGHTY` | `true` | Auto-forward confirmations to Flighty. |
 | `FLIGHTY_ADDRESS` | `track@my.flightyapp.com` | Flighty's email-import address. |
+| `ADD_TO_CALENDAR` | `true` | Create Google Calendar events for detected flights. |
+| `CALENDAR_ID` | *(empty)* | Empty = your default calendar. Or a calendar ID (calendar settings → "Integrate calendar") to keep flights in their own calendar. |
+| `FLIGHT_EVENT_HOURS` | `3` | Event length when a departure time was parsed (all-day event otherwise). |
 | `SEARCH_WINDOW_DAYS` | `4` | Look-back window per scan (dedupe makes overlap harmless). |
 | `SCAN_INTERVAL_MINUTES` | `30` | Scan frequency (1/5/10/15/30, or 60+ for hourly). Re-run `setup` after changing. |
 | `EXTRA_SENDERS` | *(empty)* | Comma-separated extra sender domains (corporate travel tool, a missing airline, …). |
@@ -133,3 +140,15 @@ All settings live in **Project Settings → Script Properties** (defaults in
   sparse doesn't affect the Flighty import.
 - **Adding an airline Flug missed:** add its sender domain to
   `EXTRA_SENDERS` — no code change needed.
+- **Calendar events are best-effort:** dates/times are parsed from the email
+  text, and the departure timezone isn't always stated, so times use your
+  script timezone. Google's own **"Events from Gmail"** setting (Calendar →
+  Settings → Events from Gmail) does timezone-perfect flight events for major
+  airlines — you can use it alongside or instead of Flug's calendar feature
+  (set `ADD_TO_CALENDAR` to `false` to avoid doubles if both are on).
+- **Re-authorizing after updates:** if you added the calendar feature to an
+  existing install, update `appsscript.json` too (new `calendar` scope) and
+  run `setup` again to re-grant permissions.
+- **Schedule changes** are posted to Chat but don't move existing calendar
+  events; duplicate events for re-sent confirmations are skipped by
+  title+day matching.
