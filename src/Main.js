@@ -6,6 +6,7 @@
  * runFlightScan()  the scheduled job (also fine to run manually).
  * backfill(days)   one-off: forward historical confirmations to Flighty
  *                  without posting them to Chat.
+ * dryRun(days)     test: log what a scan WOULD do, with no side effects.
  * sendTestMessage() (in Chat.js) verify the webhook.
  */
 
@@ -62,6 +63,16 @@ function backfill(days) {
   scan_(days || 180, { notifyChat: false, forward: true, calendar: false });
 }
 
+/**
+ * Test run over the last N days (default 90): logs which emails would match
+ * and what was parsed from them — no Chat posts, no Flighty forwards, no
+ * calendar events, no labels, nothing marked processed. Run it as often as
+ * you like; check the Execution log for the results.
+ */
+function dryRun(days) {
+  scan_(days || 90, { notifyChat: false, forward: false, calendar: false, dryRun: true });
+}
+
 function scan_(windowDays, opts) {
   const query = buildSearchQuery(windowDays);
   const threads = GmailApp.search(query, 0, 100);
@@ -81,7 +92,8 @@ function scan_(windowDays, opts) {
 
     thread.getMessages().forEach(function (message) {
       const id = message.getId();
-      if (processed.ids[id]) return;
+      // Dry runs re-evaluate everything so tests aren't hidden by dedupe.
+      if (processed.ids[id] && !opts.dryRun) return;
       if (message.getDate() < cutoff) return;
       const from = (message.getFrom() || '').toLowerCase();
       if (from.indexOf(me) !== -1) return; // our own forwards etc.
@@ -123,14 +135,20 @@ function scan_(windowDays, opts) {
 
       threadMatched = true;
       handled++;
-      console.log('Processed: [' + (meta.airline || '?') + '] ' + message.getSubject() +
-        (meta.forwarded ? ' (forwarded to Flighty)' : ''));
+      if (opts.dryRun) {
+        console.log('WOULD process: [' + (meta.airline || '?') + '] "' + message.getSubject() +
+          '" — kind=' + meta.kind + ', forwardable=' + meta.forwardable +
+          ', parsed=' + JSON.stringify(parsed));
+      } else {
+        console.log('Processed: [' + (meta.airline || '?') + '] ' + message.getSubject() +
+          (meta.forwarded ? ' (forwarded to Flighty)' : ''));
+      }
     });
 
-    if (threadMatched) thread.addLabel(label);
+    if (threadMatched && !opts.dryRun) thread.addLabel(label);
   });
 
-  saveProcessedIds_(processed);
+  if (!opts.dryRun) saveProcessedIds_(processed);
   console.log('Scan complete: ' + handled + ' flight email(s) handled, ' +
     threads.length + ' candidate thread(s) examined.');
 }

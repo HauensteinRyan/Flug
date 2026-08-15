@@ -120,6 +120,7 @@ All settings live in **Project Settings → Script Properties** (defaults in
 | Function | Purpose |
 |---|---|
 | `setup` | One-time install: config, label, recurring trigger. Re-run after changing the scan interval. |
+| `dryRun` | **Test safely:** scan the last 90 days and log what would match and what was parsed — no Chat posts, no forwards, no events, nothing marked processed. |
 | `runFlightScan` | Scan now (same thing the trigger runs). |
 | `sendTestMessage` | Post a test message to the Chat space. |
 | `backfill` | Forward the last 180 days of confirmations to Flighty, without Chat posts. Edit the default in `Main.js` for a different window. |
