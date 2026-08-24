@@ -41,7 +41,18 @@ function getFlightSheet_() {
 function segmentKey_(seg) {
   const day = seg.depDate ? Utilities.formatDate(seg.depDate, Session.getScriptTimeZone(), 'yyyy-MM-dd')
     : (seg.dateStr || '');
-  return [seg.confirmation || '', seg.flightNo || '', seg.origin || '', seg.dest || '', day].join('|');
+  // Key on the physical flight (number + route + day), NOT the confirmation
+  // code — so the same flight seen via AmTrav and via Delta merges into one
+  // row instead of duplicating.
+  return [seg.flightNo || '', seg.origin || '', seg.dest || '', day].join('|');
+}
+
+/** Clear all stored flights (keeps the header). Rebuild with syncNow. */
+function resetFlights() {
+  const sheet = getFlightSheet_();
+  const last = sheet.getLastRow();
+  if (last > 1) sheet.deleteRows(2, last - 1);
+  console.log('Cleared stored flights. Run syncNow to rebuild.');
 }
 
 /**

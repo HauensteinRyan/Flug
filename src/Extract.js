@@ -20,9 +20,96 @@
 function extractFlights(message) {
   let segments = extractFromJsonLd_(message);
   if (segments.length) return segments;
+  segments = extractAmTravLayout_(message);
+  if (segments.length) return segments;
   segments = extractDeltaLayout_(message);
   if (segments.length) return segments;
   return extractHeuristic_(message);
+}
+
+// Airline display name -> IATA code, for sources that name the carrier
+// ("Delta #2905") instead of giving a code.
+const AIRLINE_NAME_CODE = {
+  'delta': 'DL', 'united': 'UA', 'american': 'AA', 'southwest': 'WN',
+  'alaska': 'AS', 'jetblue': 'B6', 'spirit': 'NK', 'frontier': 'F9',
+  'hawaiian': 'HA', 'air canada': 'AC', 'westjet': 'WS', 'lufthansa': 'LH',
+  'british airways': 'BA', 'air france': 'AF', 'klm': 'KL', 'aer lingus': 'EI',
+  'swiss': 'LX', 'iberia': 'IB', 'finnair': 'AY', 'ita airways': 'AZ',
+};
+
+// ---- AmTrav (corporate agency) booking layout ----------------------------
+//
+// AmTrav confirmations name the carrier and per-segment airline PNR:
+//   CONFIRMATION # G6UNJ9 / Delta #2905 /
+//   DEPARTS 9:45 AM Mon, Aug 24 SEA / ARRIVES 12:20 PM ... LAS
+// The "CONFIRMATION #" is the airline record locator — the same code Delta's
+// own email uses — so keying on flight+route+day merges the two sources.
+
+function extractAmTravLayout_(message) {
+  const from = (message.getFrom() || '').toLowerCase();
+  const text = message.getPlainBody() || '';
+  if (from.indexOf('amtrav') === -1 && !/AmTrav Booking|Your Trip is Booked/i.test(text)) return [];
+  const emailDate = message.getDate();
+
+  // Each real segment carries a "CONFIRMATION #"; split on it (drop header).
+  const parts = text.split(/CONFIRMATION\s*#/i);
+  const chunks = parts.length > 1 ? parts.slice(1) : [];
+  const out = [];
+
+  chunks.forEach(function (chunk) {
+    // Trim at the next segment's start or trailing sections we don't need.
+    const cut = chunk.search(/BOOKING\s*#|Manage\s+Booking|Cancellation/i);
+    if (cut > 0) chunk = chunk.slice(0, cut);
+
+    let mm;
+    const conf = (chunk.match(/^\s*([A-Z0-9]{5,8})\b/) || [])[1] || '';
+
+    // Airline + flight, e.g. "Delta #2905"
+    let flightNo = '', airline = '';
+    const fm = chunk.match(/\b(Delta|United|American|Southwest|Alaska|JetBlue|Spirit|Frontier|Hawaiian|Air\s*Canada|WestJet|Lufthansa|British\s*Airways|Air\s*France|KLM|Aer\s*Lingus|SWISS|Iberia|Finnair|ITA(?:\s*Airways)?)\s*#?\s*(\d{1,4})/i);
+    if (fm) {
+      airline = fm[1].replace(/\s+/g, ' ');
+      const code = AIRLINE_NAME_CODE[airline.toLowerCase()] || '';
+      flightNo = (code ? code + ' ' : '') + parseInt(fm[2], 10);
+    }
+
+    // Airport codes: first two 3-letter tokens (SEA, LAS).
+    const STOP = { USB: 1, TSA: 1, FAA: 1 };
+    const codes = [];
+    const reAir = /\b([A-Z]{3})\b/g;
+    while ((mm = reAir.exec(chunk)) !== null) {
+      if (!STOP[mm[1]] && codes.indexOf(mm[1]) === -1) codes.push(mm[1]);
+      if (codes.length >= 2) break;
+    }
+
+    const dep = chunk.match(/DEPARTS?\s+(\d{1,2}:\d{2})\s*(AM|PM)/i);
+    const arr = chunk.match(/ARRIVES?\s+(\d{1,2}:\d{2})\s*(AM|PM)/i);
+    const depTimeStr = dep ? dep[1] + ' ' + dep[2].toUpperCase() : '';
+    const arrTimeStr = arr ? arr[1] + ' ' + arr[2].toUpperCase() : '';
+
+    let dateStr = '';
+    const dm = chunk.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:,\s*(\d{4}))?/);
+    if (dm) dateStr = dm[1].slice(0, 3) + ' ' + dm[2] + (dm[3] ? ', ' + dm[3] : '');
+
+    if (!flightNo && codes.length < 2) return;
+    const depDate = dateStr ? resolveDate(dateStr, emailDate) : null;
+
+    out.push({
+      confirmation: conf,
+      airline: airline ? airline + ' Air Lines' : 'AmTrav',
+      flightNo: flightNo,
+      origin: codes[0] || '',
+      dest: codes[1] || '',
+      dateStr: dateStr,
+      depTimeStr: depTimeStr,
+      arrTimeStr: arrTimeStr,
+      depDate: depDate,
+      depTime: depDate && depTimeStr ? combineDateTime_(depDate, depTimeStr) : null,
+      source: 'amtrav',
+    });
+  });
+
+  return dedupeSegments_(out);
 }
 
 // ---- Delta (and similar) plain-text itinerary layout ---------------------

@@ -243,6 +243,24 @@ function diagnoseRecent(days) {
   console.log('--- (BOOKING = stored in app · seen = airline mail we ignore · SKIP = filtered out) ---');
 }
 
+/** Inspect the latest AmTrav email: what we extract + the raw text. */
+function inspectAmTrav() {
+  const threads = GmailApp.search('from:amtrav.com -in:trash -in:spam', 0, 5);
+  if (!threads.length) { console.log('No AmTrav emails found.'); return; }
+  const message = threads[0].getMessages()[0];
+  console.log('Subject: ' + (message.getSubject() || ''));
+  console.log('--- extracted segments ---');
+  const segs = extractFlights(message);
+  if (!segs.length) console.log('(nothing extracted)');
+  segs.forEach(function (s) {
+    console.log(s.source + ' | ' + (s.flightNo || '?') + ' | ' + s.origin + '→' + s.dest +
+      ' | ' + (s.dateStr || '') + ' | ' + (s.depTimeStr || '') + '–' + (s.arrTimeStr || '') +
+      ' | conf=' + s.confirmation);
+  });
+  console.log('--- plain-text excerpt ---');
+  console.log((message.getPlainBody() || '').slice(0, 2400).replace(/\r/g, '').replace(/\n{3,}/g, '\n\n'));
+}
+
 function scan_(windowDays, opts) {
   const query = buildSearchQuery(windowDays);
   const threads = GmailApp.search(query, 0, 100);

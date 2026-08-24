@@ -73,6 +73,7 @@ const AIRLINE_SENDERS = {
   'hopper.com': 'Hopper',
   'kiwi.com': 'Kiwi.com',
   'navan.com': 'Navan',
+  'amtrav.com': 'AmTrav',
 };
 
 const SUBJECT_KEYWORDS = [
@@ -112,6 +113,7 @@ const CONFIRM_SUBJECT_KEYWORDS = [
   'e-ticket', 'eticket', 'electronic ticket', 'flight receipt',
   'reservation confirmed', 'ticket confirmation', 'confirmation number',
   'award trip', "you're booked", 'you’re booked', 'your trip to',
+  'amtrav booking', 'trip is booked',
 ];
 
 const BODY_HINTS = [
@@ -201,7 +203,8 @@ function buildBookingQuery(windowDays) {
     'subject:("trip details" OR "flight receipt" OR "your itinerary" OR ' +
     '"itinerary confirmation" OR "trip confirmation" OR "e-ticket" OR ' +
     '"eticket" OR "booking confirmation" OR "flight confirmation" OR ' +
-    '"award trip" OR "confirmation number" OR "you\'re booked")';
+    '"award trip" OR "confirmation number" OR "you\'re booked" OR ' +
+    '"amtrav booking" OR "trip is booked")';
 }
 
 /** Gmail search query for candidate messages. */
