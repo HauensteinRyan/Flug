@@ -73,15 +73,19 @@ you're set.
    replace its contents with [`src/appsscript.json`](src/appsscript.json)
    (adjust `timeZone` to yours).
 
-**Option B — [clasp](https://github.com/google/clasp):**
+**Option B — [clasp](https://github.com/google/clasp) (one command):**
+
+From the repo root, on a machine with Node.js (this needs a browser to log
+into *your* Google account, so it can't run in a remote sandbox):
 
 ```bash
-npm install -g @google/clasp
-clasp login
-cd src
-clasp create --type standalone --title "Flug"
-clasp push
+npm install         # installs clasp locally
+npx clasp login     # opens a browser — authorize with your Google account
+./deploy.sh         # creates the Apps Script project (first run) and pushes src/
 ```
+
+Later code changes: just re-run `./deploy.sh` (or `npm run push`).
+`npm run open` opens the project in the editor; `npm run logs` tails execution logs.
 
 ### 4. Configure and start it
 

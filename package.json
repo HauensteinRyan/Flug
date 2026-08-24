@@ -1,0 +1,17 @@
+{
+  "name": "flug",
+  "version": "1.0.0",
+  "description": "Flight info organizer — Gmail to Google Chat, Flighty, and Google Calendar (Google Apps Script).",
+  "private": true,
+  "scripts": {
+    "login": "clasp login",
+    "create": "clasp create --type standalone --title Flug --rootDir src",
+    "push": "clasp push",
+    "deploy": "bash deploy.sh",
+    "open": "clasp open",
+    "logs": "clasp logs"
+  },
+  "devDependencies": {
+    "@google/clasp": "^2.4.2"
+  }
+}
