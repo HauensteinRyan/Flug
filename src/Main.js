@@ -73,6 +73,54 @@ function dryRun(days) {
   scan_(days || 90, { notifyChat: false, forward: false, calendar: false, dryRun: true });
 }
 
+/**
+ * Read-only diagnostic for the app build: scans recent confirmations and
+ * logs the STRUCTURED flights extracted from each (flight #, airports,
+ * times, confirmation code) plus whether they came from embedded schema.org
+ * markup ('schema') or the text fallback ('text'). No writes, no side
+ * effects. Use it to confirm data quality before building the Sheet + app.
+ */
+function previewFlights(days) {
+  const window = days || 120;
+  const threads = GmailApp.search(buildSearchQuery(window), 0, 60);
+  const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
+  let schema = 0, text = 0, emails = 0, segs = 0;
+
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      if (message.getDate() < cutoff) return;
+      const parsed = parseFlightInfo(message.getSubject() || '', message.getPlainBody() || '');
+      const meta = classifyMessage(message, parsed);
+      if (!meta || !meta.bookingConfirmation) return;
+
+      const flights = extractFlights(message);
+      if (!flights.length) return;
+      emails++;
+
+      flights.forEach(function (f) {
+        segs++;
+        if (f.source === 'schema') schema++; else text++;
+        console.log(
+          '[' + f.source + '] ' + (f.flightNo || '??') + '  ' +
+          (f.origin || '???') + ' → ' + (f.dest || '???') + '  ' +
+          (f.depTime ? f.depTime.toISOString().slice(0, 16).replace('T', ' ') : 'no time') +
+          (f.confirmation ? '  conf=' + f.confirmation : '') +
+          '   « ' + (message.getSubject() || '').slice(0, 40)
+        );
+      });
+    });
+  });
+
+  console.log('---');
+  console.log('Preview: ' + emails + ' booking email(s), ' + segs + ' segment(s) — ' +
+    schema + ' from schema markup, ' + text + ' from text fallback.');
+  if (segs && schema / segs >= 0.7) {
+    console.log('Great — most segments came from clean schema markup. Ready to build the Sheet + app.');
+  } else if (segs) {
+    console.log('Note: a lot came from the text fallback. Paste this log and we will tune extraction.');
+  }
+}
+
 function scan_(windowDays, opts) {
   const query = buildSearchQuery(windowDays);
   const threads = GmailApp.search(query, 0, 100);
