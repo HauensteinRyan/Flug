@@ -35,7 +35,11 @@ function parseFlightInfo(subject, plainBody) {
   const flights = [];
   const seenFlights = {};
   function addFlight(code, num) {
-    const label = (code ? code.toUpperCase() + ' ' : '') + parseInt(num, 10);
+    const n = parseInt(num, 10);
+    // Drop phantom low numbers with no airline code ("flight 1 of 2",
+    // "segment 2") — real codeless flight numbers are 3+ digits.
+    if (!code && n < 100) return;
+    const label = (code ? code.toUpperCase() + ' ' : '') + n;
     if (!seenFlights[label] && flights.length < 8) {
       seenFlights[label] = true;
       flights.push(label);
@@ -52,7 +56,7 @@ function parseFlightInfo(subject, plainBody) {
   // Route: "SFO → JFK" style pairs first, then parenthesized "(SFO)" codes
   // in order of appearance.
   let route = null;
-  const routeMatch = text.match(/\b([A-Z]{3})\s*(?:→|➔|->|—|–|\bto\b)\s*([A-Z]{3})\b/);
+  const routeMatch = text.match(/\b([A-Z]{3})\s*(?:→|➔|->|>|—|–|\bto\b)\s*([A-Z]{3})\b/);
   if (routeMatch) {
     route = routeMatch[1] + ' → ' + routeMatch[2];
   } else {

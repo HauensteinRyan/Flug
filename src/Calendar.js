@@ -1,10 +1,13 @@
 /**
- * Google Calendar events for detected flights.
+ * Google Calendar events for detected flights — a coarse "you're flying
+ * this day" marker; Flighty holds the precise times, gates, and seats.
  *
- * One event per parsed travel date, best-effort paired with the flight
- * number and time listed in the same position in the email (airlines list
- * segments in order). With a parsed departure time the event is a timed
- * block (FLIGHT_EVENT_HOURS long); otherwise it's an all-day event.
+ * One ALL-DAY event per unique upcoming travel date in the email. All-day
+ * (rather than timed) is deliberate: airline emails list several times
+ * (check-in, depart, arrive, connection) with no reliable way to tell which
+ * is the departure, so a timed event would often be wrong — a day marker
+ * never is. Only future dates are used, which also discards footer/fare
+ * dates and other junk a wide parse might pick up.
  *
  * Note: Gmail/Calendar's built-in "Events from Gmail" feature can also do
  * this for many airlines — Flug's version works regardless of that setting
@@ -25,40 +28,44 @@ function addToCalendar(message, parsed, meta) {
   const description = [
     meta.airline ? 'Airline: ' + meta.airline : null,
     parsed.route ? 'Route: ' + parsed.route : null,
+    parsed.flights.length ? 'Flight(s): ' + parsed.flights.join(', ') : null,
     parsed.confirmationCode ? 'Confirmation code: ' + parsed.confirmationCode : null,
     'Email: ' + gmailLink,
     '(added by Flug)',
   ].filter(String).join('\n');
 
-  const durationMs = cfgInt('FLIGHT_EVENT_HOURS', 3) * 60 * 60 * 1000;
+  // One title for the whole trip (route if known, else first flight).
+  const title = '✈️ ' + (
+    parsed.route ? parsed.route :
+    parsed.flights.length ? 'Flight ' + parsed.flights[0] :
+    'Flight' + (meta.airline ? ' — ' + meta.airline : '')
+  );
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const seenDays = {};
   let created = 0;
 
-  parsed.dates.forEach(function (dateStr, i) {
+  parsed.dates.forEach(function (dateStr) {
     const day = resolveDate(dateStr, message.getDate());
     if (!day) return;
+    if (day < today) return; // skip past trips and junk footer/fare dates
 
-    const flight = parsed.flights[i] || parsed.flights[0] || null;
-    const title = '✈️ ' +
-      (flight ? 'Flight ' + flight : 'Flight') +
-      (meta.airline && !flight ? ' — ' + meta.airline : '') +
-      (parsed.route && i === 0 ? ' (' + parsed.route + ')' : '');
+    const key = day.getFullYear() + '-' + day.getMonth() + '-' + day.getDate();
+    if (seenDays[key]) return; // one event per calendar day
+    seenDays[key] = true;
 
     // Skip if an identically titled event already exists that day
-    // (updated/duplicate confirmation emails for the same booking).
+    // (a re-sent or updated confirmation for the same booking).
     const dayStart = new Date(day.getFullYear(), day.getMonth(), day.getDate());
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
-    const existing = cal.getEvents(dayStart, dayEnd).some(function (ev) {
+    const exists = cal.getEvents(dayStart, dayEnd).some(function (ev) {
       return ev.getTitle() === title;
     });
-    if (existing) return;
+    if (exists) return;
 
-    const time = parsed.times[i];
-    if (time) {
-      const start = new Date(day.getFullYear(), day.getMonth(), day.getDate(), time.hour, time.minute);
-      cal.createEvent(title, start, new Date(start.getTime() + durationMs), { description: description });
-    } else {
-      cal.createAllDayEvent(title, day, { description: description });
-    }
+    cal.createAllDayEvent(title, day, { description: description });
     created++;
   });
 

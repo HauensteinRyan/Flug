@@ -91,6 +91,29 @@ const CHANGE_KEYWORDS = [
   'rebooked', 'gate change',
 ];
 
+// Airline mail that is NOT a new booking — check-in nudges, menus, seat
+// upgrades, login PINs, mileage promos. Matching any of these skips the
+// message entirely (no forward, no calendar, no label).
+const EXCLUDE_SUBJECT_KEYWORDS = [
+  'time to check in', 'check in for your', 'check-in', 'time to check',
+  'your menu', 'menu for your', 'upgraded seat', 'your upgraded',
+  'what you can look forward', 'look forward to on your',
+  'pin code', 'is your pin', 'verification code', 'security code',
+  'bonus miles', 'special offer', 'credit card', 'cruise',
+  'earn up to', 'shot at', 'travel challenge', 'new benefits',
+  'how was your', 'rate your', 'tell us about',
+];
+
+// Subjects that positively mean "this is a booking / ticket confirmation."
+// Only these get forwarded to Flighty and put on the calendar.
+const CONFIRM_SUBJECT_KEYWORDS = [
+  'trip details', 'flight confirmation', 'booking confirmation',
+  'your itinerary', 'itinerary confirmation', 'trip confirmation',
+  'e-ticket', 'eticket', 'electronic ticket', 'flight receipt',
+  'reservation confirmed', 'ticket confirmation', 'confirmation number',
+  'award trip', "you're booked", 'you’re booked', 'your trip to',
+];
+
 const BODY_HINTS = [
   'record locator', 'confirmation code', 'confirmation number',
   'booking reference', 'booking code', 'reservation code', 'pnr',
@@ -111,6 +134,11 @@ function classifyMessage(message, parsed) {
   const subject = (message.getSubject() || '').toLowerCase();
   const body = (message.getPlainBody() || '').toLowerCase().slice(0, 20000);
 
+  // Non-booking airline mail (check-in, menu, upgrade, PIN, promos) — skip.
+  if (EXCLUDE_SUBJECT_KEYWORDS.some(function (k) { return subject.indexOf(k) !== -1; })) {
+    return null;
+  }
+
   let airline = null;
   for (const domain in AIRLINE_SENDERS) {
     if (from.indexOf(domain) !== -1) {
@@ -128,7 +156,8 @@ function classifyMessage(message, parsed) {
     }
   }
 
-  const subjectHit = SUBJECT_KEYWORDS.some(function (k) { return subject.indexOf(k) !== -1; });
+  const confirmSubjectHit = CONFIRM_SUBJECT_KEYWORDS.some(function (k) { return subject.indexOf(k) !== -1; });
+  const subjectHit = confirmSubjectHit || SUBJECT_KEYWORDS.some(function (k) { return subject.indexOf(k) !== -1; });
   const changeHit = CHANGE_KEYWORDS.some(function (k) { return subject.indexOf(k) !== -1; });
   const bodyHits = BODY_HINTS.filter(function (k) { return body.indexOf(k) !== -1; }).length;
 
@@ -144,14 +173,21 @@ function classifyMessage(message, parsed) {
   // Sender-only signal isn't enough (airlines send plenty of promos).
   if (airline && !subjectHit && !changeHit && bodyHits === 0) return null;
 
-  const kind = changeHit && !subjectHit ? 'update' : 'confirmation';
-  const forwardable = Boolean(
-    airline &&
-    kind === 'confirmation' &&
-    (parsed.confirmationCode || parsed.flights.length > 0)
-  );
+  const kind = changeHit && !confirmSubjectHit ? 'update' : 'confirmation';
 
-  return { airline: airline, kind: kind, forwardable: forwardable, score: score };
+  // Only forward to Flighty / add to calendar for genuine booking
+  // confirmations (subject says so), so we never act on stray airline mail
+  // that merely happens to mention a flight number.
+  const bookingConfirmation = kind === 'confirmation' && confirmSubjectHit;
+  const forwardable = Boolean(airline && bookingConfirmation);
+
+  return {
+    airline: airline,
+    kind: kind,
+    forwardable: forwardable,
+    bookingConfirmation: bookingConfirmation,
+    score: score,
+  };
 }
 
 /** Gmail search query for candidate messages. */
@@ -161,7 +197,8 @@ function buildSearchQuery(windowDays) {
   const fromClause = 'from:(' + domains.join(' OR ') + ')';
   const subjectClause = 'subject:("flight confirmation" OR "booking confirmation" OR ' +
     '"your itinerary" OR "e-ticket" OR "eticket" OR "flight receipt" OR ' +
-    '"trip confirmation" OR "itinerary confirmation" OR "schedule change")';
+    '"trip confirmation" OR "itinerary confirmation" OR "trip details" OR ' +
+    '"award trip" OR "schedule change")';
   return '-in:trash -in:spam -from:me newer_than:' + windowDays + 'd ' +
     '(' + fromClause + ' OR ' + subjectClause + ')';
 }

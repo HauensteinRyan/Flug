@@ -117,7 +117,7 @@ function scan_(windowDays, opts) {
       }
 
       meta.eventsCreated = 0;
-      if (opts.calendar && meta.kind === 'confirmation') {
+      if (opts.calendar && meta.bookingConfirmation) {
         try {
           meta.eventsCreated = addToCalendar(message, parsed, meta);
         } catch (e) {
