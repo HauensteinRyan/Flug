@@ -49,7 +49,38 @@ function runFlightScan() {
     notifyChat: true,
     forward: cfgBool('FORWARD_TO_FLIGHTY'),
     calendar: cfgBool('ADD_TO_CALENDAR'),
+    store: cfgBool('STORE_FLIGHTS'),
   });
+}
+
+/**
+ * Fill the Flights sheet from your booking history (default: last 365 days).
+ * Idempotent — safe to run repeatedly; re-parsing an email updates its rows
+ * rather than duplicating them. Run once after setup to populate the app.
+ */
+function syncNow(days) {
+  const window = days || 365;
+  const threads = GmailApp.search(buildSearchQuery(window), 0, 100);
+  const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
+  let added = 0, segs = 0, emails = 0;
+
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      if (message.getDate() < cutoff) return;
+      const subject = message.getSubject() || '';
+      if (/^fwd:/i.test(subject)) return;
+      const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
+      const meta = classifyMessage(message, parsed);
+      if (!meta || !meta.bookingConfirmation) return;
+      const flights = extractFlights(message);
+      if (!flights.length) return;
+      emails++; segs += flights.length;
+      try { added += upsertFlights(flights); } catch (e) { console.error('Store failed: ' + e); }
+    });
+  });
+
+  console.log('Synced ' + emails + ' booking email(s), ' + segs + ' segment(s); ' + added + ' new row(s).');
+  flightSheetUrl();
 }
 
 /**
@@ -219,6 +250,15 @@ function scan_(windowDays, opts) {
           meta.forwarded = true;
         } catch (e) {
           console.error('Forward to Flighty failed for "' + message.getSubject() + '": ' + e);
+        }
+      }
+
+      meta.stored = 0;
+      if (opts.store && meta.bookingConfirmation) {
+        try {
+          meta.stored = upsertFlights(extractFlights(message));
+        } catch (e) {
+          console.error('Store to sheet failed for "' + message.getSubject() + '": ' + e);
         }
       }
 

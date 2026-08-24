@@ -11,10 +11,14 @@ const DEFAULTS = {
   // Leave empty to disable Chat notifications.
   CHAT_WEBHOOK_URL: '',
 
-  // Forward matched confirmation emails to Flighty's email-import address.
-  // Your Gmail address must be linked to your Flighty account
-  // (Flighty app → Settings → Import Flights → Email Forwarding).
-  FORWARD_TO_FLIGHTY: 'true',
+  // Save parsed flights to the Flug Flights sheet (the app's database).
+  STORE_FLIGHTS: 'true',
+
+  // Forward matched confirmation emails to a travel app's email-import
+  // address. Off by default — Flighty's email import needs a paid Pro plan;
+  // TripIt (plans@tripit.com) accepts forwards for free. Set to 'true' and
+  // point FLIGHTY_ADDRESS wherever you want if you use one of those.
+  FORWARD_TO_FLIGHTY: 'false',
   FLIGHTY_ADDRESS: 'track@my.flightyapp.com',
 
   // Create Google Calendar events for detected flights.
