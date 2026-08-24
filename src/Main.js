@@ -121,6 +121,58 @@ function previewFlights(days) {
   }
 }
 
+/**
+ * One-off inspector: finds your most recent booking confirmation and reports
+ * which structured markers it carries (JSON-LD, microdata) plus a short
+ * excerpt of the itinerary text — so extraction can be built to the real
+ * format. Read-only. The excerpt contains your own flight itinerary text.
+ */
+function inspectEmail(which) {
+  const threads = GmailApp.search(buildSearchQuery(180), 0, 40);
+  const n = which || 1;
+  let found = 0;
+
+  for (let t = 0; t < threads.length; t++) {
+    const messages = threads[t].getMessages();
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      const subject = message.getSubject() || '';
+      if (/^fwd:/i.test(subject)) continue;
+      const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
+      const meta = classifyMessage(message, parsed);
+      if (!meta || !meta.bookingConfirmation) continue;
+
+      found++;
+      if (found < n) continue;
+
+      const html = (function () { try { return message.getBody() || ''; } catch (e) { return ''; } })();
+      const textBody = message.getPlainBody() || '';
+      const low = html.toLowerCase();
+      function has(s) { return low.indexOf(s) !== -1 ? 'YES' : 'no'; }
+
+      console.log('Subject: ' + subject);
+      console.log('Markers — ld+json:' + has('ld+json') +
+        '  FlightReservation:' + has('flightreservation') +
+        '  itemtype:' + has('itemtype') +
+        '  itemprop:' + has('itemprop') +
+        '  schema.org:' + has('schema.org'));
+      console.log('Sizes — html:' + html.length + '  text:' + textBody.length);
+
+      // Excerpt of the plain-text itinerary around the first flight number.
+      let start = textBody.search(/\b[A-Z]{2}\s?\d{2,4}\b/);
+      if (start < 0) start = 0;
+      start = Math.max(0, start - 120);
+      const excerpt = textBody.slice(start, start + 1800)
+        .replace(/\r/g, '').replace(/\n{3,}/g, '\n\n');
+      console.log('--- itinerary text excerpt ---');
+      console.log(excerpt);
+      console.log('--- end excerpt ---');
+      return;
+    }
+  }
+  console.log('No booking confirmation #' + n + ' found in the last 180 days.');
+}
+
 function scan_(windowDays, opts) {
   const query = buildSearchQuery(windowDays);
   const threads = GmailApp.search(query, 0, 100);
