@@ -190,6 +190,20 @@ function classifyMessage(message, parsed) {
   };
 }
 
+/**
+ * Tight query for booking confirmations only (by subject). Airlines send a
+ * huge volume of check-in/menu/promo mail, so a sender-based search gets
+ * crowded out past the result cap; matching confirmation subjects directly
+ * keeps historical bookings findable. Used for backfill/sync and preview.
+ */
+function buildBookingQuery(windowDays) {
+  return '-in:trash -in:spam -from:me newer_than:' + windowDays + 'd ' +
+    'subject:("trip details" OR "flight receipt" OR "your itinerary" OR ' +
+    '"itinerary confirmation" OR "trip confirmation" OR "e-ticket" OR ' +
+    '"eticket" OR "booking confirmation" OR "flight confirmation" OR ' +
+    '"award trip" OR "confirmation number" OR "you\'re booked")';
+}
+
 /** Gmail search query for candidate messages. */
 function buildSearchQuery(windowDays) {
   const domains = Object.keys(AIRLINE_SENDERS)

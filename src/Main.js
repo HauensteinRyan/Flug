@@ -60,7 +60,7 @@ function runFlightScan() {
  */
 function syncNow(days) {
   const window = days || 365;
-  const threads = GmailApp.search(buildSearchQuery(window), 0, 100);
+  const threads = GmailApp.search(buildBookingQuery(window), 0, 150);
   const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
   let added = 0, segs = 0, emails = 0;
 
@@ -113,7 +113,7 @@ function dryRun(days) {
  */
 function previewFlights(days) {
   const window = days || 120;
-  const threads = GmailApp.search(buildSearchQuery(window), 0, 60);
+  const threads = GmailApp.search(buildBookingQuery(window), 0, 100);
   const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
   let clean = 0, weak = 0, emails = 0, segs = 0;
   const seenSubjects = {};
