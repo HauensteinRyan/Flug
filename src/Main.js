@@ -245,9 +245,18 @@ function diagnoseRecent(days) {
 
 /** Inspect the latest AmTrav email: what we extract + the raw text. */
 function inspectAmTrav() {
-  const threads = GmailApp.search('from:amtrav.com -in:trash -in:spam', 0, 5);
-  if (!threads.length) { console.log('No AmTrav emails found.'); return; }
-  const message = threads[0].getMessages()[0];
+  const threads = GmailApp.search('from:amtrav.com subject:(booking) -in:trash -in:spam', 0, 5)
+    .concat(GmailApp.search('from:amtrav.com "Your Trip is Booked" -in:trash', 0, 5));
+  if (!threads.length) { console.log('No AmTrav booking emails found.'); return; }
+  // Prefer a message that actually parses into segments.
+  let message = null, best = 0;
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (m) {
+      const c = extractFlights(m).length;
+      if (c > best) { best = c; message = m; }
+      if (!message) message = m;
+    });
+  });
   console.log('Subject: ' + (message.getSubject() || ''));
   console.log('--- extracted segments ---');
   const segs = extractFlights(message);

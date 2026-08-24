@@ -103,6 +103,7 @@ const EXCLUDE_SUBJECT_KEYWORDS = [
   'bonus miles', 'special offer', 'credit card', 'cruise',
   'earn up to', 'shot at', 'travel challenge', 'new benefits',
   'how was your', 'rate your', 'tell us about',
+  'almost time to travel', 'time to travel',
 ];
 
 // Subjects that positively mean "this is a booking / ticket confirmation."
