@@ -45,40 +45,50 @@ const AIRLINE_NAME_CODE = {
 // The "CONFIRMATION #" is the airline record locator — the same code Delta's
 // own email uses — so keying on flight+route+day merges the two sources.
 
+var AMTRAV_CARRIERS = 'Delta|United|American|Southwest|Alaska|JetBlue|Spirit|Frontier|Hawaiian|Air\\s*Canada|WestJet|Lufthansa|British\\s*Airways|Air\\s*France|KLM|Aer\\s*Lingus|SWISS|Iberia|Finnair|ITA(?:\\s*Airways)?';
+
 function extractAmTravLayout_(message) {
   const from = (message.getFrom() || '').toLowerCase();
   const text = message.getPlainBody() || '';
   if (from.indexOf('amtrav') === -1 && !/AmTrav Booking|Your Trip is Booked/i.test(text)) return [];
   const emailDate = message.getDate();
 
-  // Each real segment carries a "CONFIRMATION #"; split on it (drop header).
-  const parts = text.split(/CONFIRMATION\s*#/i);
-  const chunks = parts.length > 1 ? parts.slice(1) : [];
+  // Confirmation codes (airline record locators), with positions, so each
+  // flight can inherit the most recent one. Codes come wrapped like
+  // "CONFIRMATION # *GD97ZY*".
+  const confs = [];
+  let cm;
+  const reConf = /CONFIRMATION\s*#\s*\*?\s*([A-Z0-9]{5,8})/gi;
+  while ((cm = reConf.exec(text)) !== null) confs.push({ pos: cm.index, code: cm[1].toUpperCase() });
+  function confAt(pos) {
+    let code = '';
+    for (let i = 0; i < confs.length; i++) { if (confs[i].pos <= pos) code = confs[i].code; else break; }
+    return code;
+  }
+
+  // Every flight is its own "Carrier #NNNN" marker — including connections
+  // under one confirmation code. Slice the text between markers.
+  const marks = [];
+  let fm;
+  const reFlight = new RegExp('\\b(' + AMTRAV_CARRIERS + ')\\s*#\\s*(\\d{1,4})', 'gi');
+  while ((fm = reFlight.exec(text)) !== null) {
+    marks.push({ pos: fm.index, end: reFlight.lastIndex, airline: fm[1].replace(/\s+/g, ' '), num: fm[2] });
+  }
+
+  const STOP = { USB: 1, TSA: 1, FAA: 1, WIF: 1 };
   const out = [];
 
-  chunks.forEach(function (chunk) {
-    // Trim at the next segment's start or trailing sections we don't need.
-    const cut = chunk.search(/BOOKING\s*#|Manage\s+Booking|Cancellation/i);
-    if (cut > 0) chunk = chunk.slice(0, cut);
+  for (let i = 0; i < marks.length; i++) {
+    const chunk = text.slice(marks[i].end, i + 1 < marks.length ? marks[i + 1].pos : text.length);
 
-    let mm;
-    const conf = (chunk.match(/^\s*([A-Z0-9]{5,8})\b/) || [])[1] || '';
+    const code = AIRLINE_NAME_CODE[marks[i].airline.toLowerCase()] || '';
+    const flightNo = (code ? code + ' ' : '') + parseInt(marks[i].num, 10);
 
-    // Airline + flight, e.g. "Delta #2905"
-    let flightNo = '', airline = '';
-    const fm = chunk.match(/\b(Delta|United|American|Southwest|Alaska|JetBlue|Spirit|Frontier|Hawaiian|Air\s*Canada|WestJet|Lufthansa|British\s*Airways|Air\s*France|KLM|Aer\s*Lingus|SWISS|Iberia|Finnair|ITA(?:\s*Airways)?)\s*#?\s*(\d{1,4})/i);
-    if (fm) {
-      airline = fm[1].replace(/\s+/g, ' ');
-      const code = AIRLINE_NAME_CODE[airline.toLowerCase()] || '';
-      flightNo = (code ? code + ' ' : '') + parseInt(fm[2], 10);
-    }
-
-    // Airport codes: first two 3-letter tokens (SEA, LAS).
-    const STOP = { USB: 1, TSA: 1, FAA: 1 };
     const codes = [];
+    let am;
     const reAir = /\b([A-Z]{3})\b/g;
-    while ((mm = reAir.exec(chunk)) !== null) {
-      if (!STOP[mm[1]] && codes.indexOf(mm[1]) === -1) codes.push(mm[1]);
+    while ((am = reAir.exec(chunk)) !== null) {
+      if (!STOP[am[1]] && codes.indexOf(am[1]) === -1) codes.push(am[1]);
       if (codes.length >= 2) break;
     }
 
@@ -91,12 +101,12 @@ function extractAmTravLayout_(message) {
     const dm = chunk.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:,\s*(\d{4}))?/);
     if (dm) dateStr = dm[1].slice(0, 3) + ' ' + dm[2] + (dm[3] ? ', ' + dm[3] : '');
 
-    if (!flightNo && codes.length < 2) return;
+    if (codes.length < 2 && !depTimeStr) continue;
     const depDate = dateStr ? resolveDate(dateStr, emailDate) : null;
 
     out.push({
-      confirmation: conf,
-      airline: airline ? airline + ' Air Lines' : 'AmTrav',
+      confirmation: confAt(marks[i].pos),
+      airline: marks[i].airline + ' Air Lines',
       flightNo: flightNo,
       origin: codes[0] || '',
       dest: codes[1] || '',
@@ -107,7 +117,7 @@ function extractAmTravLayout_(message) {
       depTime: depDate && depTimeStr ? combineDateTime_(depDate, depTimeStr) : null,
       source: 'amtrav',
     });
-  });
+  }
 
   return dedupeSegments_(out);
 }
