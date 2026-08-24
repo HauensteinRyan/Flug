@@ -134,7 +134,7 @@ function renderHero_(model, t) {
   '<div class="lbl">Next flight' + (cd ? ' · ' + esc_(cd.toLowerCase()) : '') + '</div>' +
   '<section class="pass">' +
     '<div class="pass-top">' +
-      '<div class="pass-eyebrow"><span>' + esc_((t.date || '').toUpperCase()) + '</span>' +
+      '<div class="pass-eyebrow"><span>' + esc_(String(t.date || '').toUpperCase()) + '</span>' +
         (t.confirmation ? '<span class="countdown mono">CONF&nbsp;' + esc_(t.confirmation) + '</span>' : '') + '</div>' +
       '<div class="route">' +
         '<div class="port"><div class="code mono">' + esc_(t.origin || '–') + '</div></div>' +

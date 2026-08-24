@@ -103,12 +103,22 @@ function readFlights() {
   const sheet = getFlightSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
+  const tz = Session.getScriptTimeZone();
   const values = sheet.getRange(2, 1, lastRow - 1, SHEET_HEADERS.length).getValues();
+
+  // Sheets may auto-convert date/time-looking cells to Date objects; coerce
+  // everything back to the display strings we stored.
+  function str(v) { return v == null ? '' : (v instanceof Date ? Utilities.formatDate(v, tz, 'MMM d') : String(v)); }
+  function time(v) { return v == null ? '' : (v instanceof Date ? Utilities.formatDate(v, tz, 'h:mm a') : String(v)); }
+  function iso(v) { return v == null ? '' : (v instanceof Date ? Utilities.formatDate(v, tz, "yyyy-MM-dd'T'HH:mm") : String(v)); }
+
   return values.map(function (r) {
     return {
-      key: r[0], trip: r[1], confirmation: r[2], airline: r[3], flightNo: r[4],
-      origin: r[5], dest: r[6], date: r[7], depart: r[8], arrive: r[9],
-      departISO: r[10], source: r[11], updated: r[12],
+      key: String(r[0]), trip: String(r[1]), confirmation: String(r[2]),
+      airline: String(r[3]), flightNo: String(r[4]),
+      origin: String(r[5]), dest: String(r[6]),
+      date: str(r[7]), depart: time(r[8]), arrive: time(r[9]),
+      departISO: iso(r[10]), source: String(r[11]), updated: r[12],
     };
   }).filter(function (f) { return f.flightNo || f.origin || f.dest; });
 }
