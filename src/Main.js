@@ -210,6 +210,39 @@ function inspectEmail(which) {
   console.log('No booking confirmation #' + n + ' found in the last 180 days.');
 }
 
+/**
+ * Diagnostic: list ALL recent airline mail (not just what passes the filter)
+ * and show how each is classified and how many segments it yields — so a
+ * missing trip's email is easy to spot. Read-only.
+ */
+function diagnoseRecent(days) {
+  const window = days || 14;
+  const domains = Object.keys(AIRLINE_SENDERS)
+    .concat(cfg('EXTRA_SENDERS').split(',').map(function (s) { return s.trim(); }).filter(String));
+  const q = '-in:trash -in:spam -from:me newer_than:' + window + 'd from:(' + domains.join(' OR ') + ')';
+  const threads = GmailApp.search(q, 0, 60);
+
+  threads.forEach(function (thread) {
+    thread.getMessages().forEach(function (message) {
+      const subject = message.getSubject() || '';
+      if (/^fwd:/i.test(subject)) return;
+      const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
+      const meta = classifyMessage(message, parsed);
+      let tag;
+      if (!meta) tag = 'SKIP    ';
+      else if (meta.bookingConfirmation) tag = 'BOOKING ';
+      else tag = 'seen    ';
+      const segs = meta ? extractFlights(message) : [];
+      const preview = segs.length ? ' [' + segs.map(function (s) {
+        return (s.flightNo || '?') + ' ' + s.origin + '→' + s.dest + ' ' + (s.dateStr || '');
+      }).join('; ') + ']' : '';
+      console.log(tag + '| ' + Utilities.formatDate(message.getDate(), Session.getScriptTimeZone(), 'MMM d') +
+        ' | ' + subject.slice(0, 46) + preview);
+    });
+  });
+  console.log('--- (BOOKING = stored in app · seen = airline mail we ignore · SKIP = filtered out) ---');
+}
+
 function scan_(windowDays, opts) {
   const query = buildSearchQuery(windowDays);
   const threads = GmailApp.search(query, 0, 100);
