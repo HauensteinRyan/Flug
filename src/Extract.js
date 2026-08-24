@@ -20,7 +20,93 @@
 function extractFlights(message) {
   let segments = extractFromJsonLd_(message);
   if (segments.length) return segments;
+  segments = extractDeltaLayout_(message);
+  if (segments.length) return segments;
   return extractHeuristic_(message);
+}
+
+// ---- Delta (and similar) plain-text itinerary layout ---------------------
+//
+// Delta confirmations carry no schema markup, but the plain-text body has a
+// consistent per-segment layout:
+//   Flight 1 of 2 / DL177 / Boarding Closes 10:45 AM / 11:00 AM ... /
+//   Tue, Aug 11 / 2:53 PM / DUB- -ATL / Dublin / Atlanta / Your Onboard...
+// We split on the "Flight N of M" markers and read each segment's flight
+// number, the two airport codes, the departure/arrival clock times, and the
+// date. Times are the airport's local time, so we keep them as display
+// strings and also resolve a sortable departure Date.
+
+function extractDeltaLayout_(message) {
+  const text = message.getPlainBody() || '';
+  if (!/Flight\s+\d+\s+of\s+\d+/i.test(text) && !/Boarding\s+Closes/i.test(text)) return [];
+  const emailDate = message.getDate();
+
+  let conf = '';
+  const cm = text.match(/MATION\s*#\s*([A-Z0-9]{5,8})/i);
+  if (cm && /[A-Za-z]/.test(cm[1])) conf = cm[1].toUpperCase();
+
+  const parts = text.split(/Flight\s+\d+\s+of\s+\d+/i);
+  const chunks = parts.length > 1 ? parts.slice(1) : [text];
+  const STOP = { USB: 1, VPN: 1, SMS: 1, FAQ: 1, FAA: 1, TSA: 1, WIF: 1 };
+  const out = [];
+
+  chunks.forEach(function (raw) {
+    let chunk = raw;
+    const cut = chunk.search(/Your\s+Onboard\s+Experience|Layover\s*\|/i);
+    if (cut > 0) chunk = chunk.slice(0, cut);
+
+    let mm, flightNo = '';
+    const reCode = /\b([A-Z]{2})\s?(\d{2,4})\b/g;
+    while ((mm = reCode.exec(chunk)) !== null) {
+      if (KNOWN_AIRLINE_CODES.indexOf(mm[1]) !== -1) { flightNo = mm[1] + ' ' + parseInt(mm[2], 10); break; }
+    }
+
+    const codes = [];
+    const reAir = /\b([A-Z]{3})\b/g;
+    while ((mm = reAir.exec(chunk)) !== null) {
+      if (!STOP[mm[1]] && codes.indexOf(mm[1]) === -1) codes.push(mm[1]);
+      if (codes.length >= 2) break;
+    }
+
+    const times = [];
+    const reT = /(\d{1,2}:\d{2})\s*(AM|PM)/gi;
+    while ((mm = reT.exec(chunk)) !== null) times.push(mm[1] + ' ' + mm[2].toUpperCase());
+    const depTimeStr = times.length >= 3 ? times[1] : (times[0] || '');
+    const arrTimeStr = times.length ? times[times.length - 1] : '';
+
+    let dateStr = '';
+    const dm = chunk.match(/\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+(\d{1,2})(?:,\s*(\d{4}))?/);
+    if (dm) dateStr = dm[1].slice(0, 3) + ' ' + dm[2] + (dm[3] ? ', ' + dm[3] : '');
+
+    if (!flightNo && codes.length < 2) return;
+    const depDate = dateStr ? resolveDate(dateStr, emailDate) : null;
+
+    out.push({
+      confirmation: conf,
+      airline: 'Delta Air Lines',
+      flightNo: flightNo,
+      origin: codes[0] || '',
+      dest: codes[1] || '',
+      dateStr: dateStr,
+      depTimeStr: depTimeStr,
+      arrTimeStr: arrTimeStr,
+      depDate: depDate,
+      depTime: depDate && depTimeStr ? combineDateTime_(depDate, depTimeStr) : null,
+      source: 'delta',
+    });
+  });
+
+  return dedupeSegments_(out);
+}
+
+function combineDateTime_(day, timeStr) {
+  const m = String(timeStr).match(/(\d{1,2}):(\d{2})\s*(AM|PM)/i);
+  if (!m || !day) return null;
+  let h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (m[3].toUpperCase() === 'PM' && h < 12) h += 12;
+  if (m[3].toUpperCase() === 'AM' && h === 12) h = 0;
+  return new Date(day.getFullYear(), day.getMonth(), day.getDate(), h, min);
 }
 
 // ---- primary: schema.org JSON-LD -----------------------------------------

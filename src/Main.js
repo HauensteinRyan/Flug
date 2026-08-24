@@ -84,12 +84,15 @@ function previewFlights(days) {
   const window = days || 120;
   const threads = GmailApp.search(buildSearchQuery(window), 0, 60);
   const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
-  let schema = 0, text = 0, emails = 0, segs = 0;
+  let clean = 0, weak = 0, emails = 0, segs = 0;
+  const seenSubjects = {};
 
   threads.forEach(function (thread) {
     thread.getMessages().forEach(function (message) {
       if (message.getDate() < cutoff) return;
-      const parsed = parseFlightInfo(message.getSubject() || '', message.getPlainBody() || '');
+      const subject = message.getSubject() || '';
+      if (/^fwd:/i.test(subject)) return; // skip your own forwards
+      const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
       const meta = classifyMessage(message, parsed);
       if (!meta || !meta.bookingConfirmation) return;
 
@@ -99,13 +102,16 @@ function previewFlights(days) {
 
       flights.forEach(function (f) {
         segs++;
-        if (f.source === 'schema') schema++; else text++;
+        // schema markup and the Delta layout parser are both "clean";
+        // the generic text fallback is "weak" (often missing times/airports).
+        if (f.source === 'schema' || f.source === 'delta') clean++; else weak++;
         console.log(
           '[' + f.source + '] ' + (f.flightNo || '??') + '  ' +
           (f.origin || '???') + ' → ' + (f.dest || '???') + '  ' +
-          (f.depTime ? f.depTime.toISOString().slice(0, 16).replace('T', ' ') : 'no time') +
+          (f.dateStr || '') + ' ' + (f.depTimeStr || '') +
+          (f.arrTimeStr ? '–' + f.arrTimeStr : '') +
           (f.confirmation ? '  conf=' + f.confirmation : '') +
-          '   « ' + (message.getSubject() || '').slice(0, 40)
+          '   « ' + subject.slice(0, 38)
         );
       });
     });
@@ -113,11 +119,11 @@ function previewFlights(days) {
 
   console.log('---');
   console.log('Preview: ' + emails + ' booking email(s), ' + segs + ' segment(s) — ' +
-    schema + ' from schema markup, ' + text + ' from text fallback.');
-  if (segs && schema / segs >= 0.7) {
-    console.log('Great — most segments came from clean schema markup. Ready to build the Sheet + app.');
+    clean + ' cleanly parsed, ' + weak + ' weak (text fallback).');
+  if (segs && clean / segs >= 0.8) {
+    console.log('Looks great — ready to build the Sheet + app.');
   } else if (segs) {
-    console.log('Note: a lot came from the text fallback. Paste this log and we will tune extraction.');
+    console.log('Some still weak — paste this log and I will tune before building further.');
   }
 }
 
