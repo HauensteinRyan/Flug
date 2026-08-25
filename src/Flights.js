@@ -15,8 +15,11 @@ const SHEET_HEADERS = [
   'Date', 'Depart', 'Arrive', 'DepartISO', 'ArriveISO',
   'Seat', 'Cabin', 'Aircraft', 'Duration', 'DepTerminal', 'ArrTerminal',
   'Source', 'Updated',
+  'LiveStatus', 'DelayMin', 'LiveGate', 'LiveTerminal', 'StatusUpdated',
 ];
 const COL = SHEET_HEADERS.length;
+const IDX_UPDATED = 19;          // 'Updated' column (0-based)
+const IDX_STATUS = 20;           // first live-status column (0-based); 1-based = 21
 
 /** Find (or create) the Flug Flights spreadsheet and return its Flights tab. */
 function getFlightSheet_() {
@@ -38,6 +41,8 @@ function getFlightSheet_() {
   if (sheet.getLastRow() === 0) {
     sheet.getRange(1, 1, 1, COL).setValues([SHEET_HEADERS]);
     sheet.setFrozenRows(1);
+  } else if (sheet.getLastColumn() < COL) {
+    sheet.getRange(1, 1, 1, COL).setValues([SHEET_HEADERS]); // extend header for new columns
   }
   return sheet;
 }
@@ -89,15 +94,16 @@ function upsertFlights(segments) {
       dateDisp, seg.depTimeStr || '', seg.arrTimeStr || '', depISO, arrISO,
       seg.seat || '', seg.cabin || '', seg.aircraft || '', seg.duration || '',
       seg.depTerminal || '', seg.arrTerminal || '', seg.source || '', now,
+      '', '', '', '', '', // live-status columns — filled by refreshStatus, preserved on merge
     ];
 
     if (key in idxOf) {
       const ex = rows[idxOf[key]];
       rows[idxOf[key]] = row.map(function (v, idx) {
-        if (idx === COL - 1) return now; // Updated: always now
-        if (idx === 0) return v;         // Key: unchanged
+        if (idx === IDX_UPDATED) return now; // Updated: always now
+        if (idx === 0) return v;             // Key: unchanged
         const nv = v == null ? '' : String(v).trim();
-        return nv !== '' ? v : ex[idx];  // keep new if present, else old
+        return nv !== '' ? v : ex[idx];      // keep new if present, else old
       });
     } else {
       rows.push(row);
@@ -133,8 +139,29 @@ function readFlights() {
       seat: String(r[12]), cabin: String(r[13]), aircraft: String(r[14]),
       duration: String(r[15]), depTerminal: String(r[16]), arrTerminal: String(r[17]),
       source: String(r[18]), updated: r[19],
+      liveStatus: String(r[20] || ''), delayMin: String(r[21] || ''),
+      liveGate: String(r[22] || ''), liveTerminal: String(r[23] || ''),
+      statusUpdated: r[24] || '',
     };
   }).filter(function (f) { return f.flightNo || f.origin || f.dest; });
+}
+
+/** Write the live-status columns for one flight row (by key). No-op if absent. */
+function writeStatus_(key, st) {
+  const sheet = getFlightSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+  const keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i][0] === key) {
+      sheet.getRange(i + 2, IDX_STATUS + 1, 1, 5).setValues([[
+        st.status || '', st.delay == null ? '' : st.delay,
+        st.gate || '', st.terminal || '', st.updated || new Date(),
+      ]]);
+      return true;
+    }
+  }
+  return false;
 }
 
 /** URL of the underlying spreadsheet (handy for a quick manual look). */

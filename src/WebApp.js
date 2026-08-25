@@ -148,6 +148,33 @@ function fmtStay_(mins) {
   return Math.max(1, Math.round(mins / 60)) + 'h';
 }
 
+// Live status -> {label, cls}. Returns null when no live data yet.
+function statusInfo_(seg) {
+  if (!seg) return null;
+  const s = String(seg.liveStatus || '').toLowerCase();
+  let delay = parseInt(seg.delayMin, 10);
+  if (isNaN(delay)) delay = null;
+  if (!s) return null;
+  if (s.indexOf('cancel') >= 0) return { label: 'Cancelled', cls: 'crit' };
+  if (s.indexOf('divert') >= 0) return { label: 'Diverted', cls: 'crit' };
+  if (s.indexOf('arriv') >= 0 || s.indexOf('landed') >= 0) return { label: 'Landed', cls: 'muted' };
+  if (s.indexOf('board') >= 0 || s.indexOf('gateclosed') >= 0) return { label: 'Boarding', cls: 'accent' };
+  if (s.indexOf('enroute') >= 0 || s.indexOf('departed') >= 0 || s.indexOf('approach') >= 0) return { label: 'In air', cls: 'accent' };
+  if (s.indexOf('delay') >= 0 || (delay != null && delay >= 15)) return { label: 'Delayed' + (delay ? ' +' + delay + 'm' : ''), cls: 'warn' };
+  if (s.indexOf('unverif') >= 0) return { label: 'Unverified', cls: 'muted' };
+  return { label: (delay != null && delay >= 15) ? 'Delayed +' + delay + 'm' : 'On time', cls: 'good' };
+}
+
+function agoText_(when) {
+  if (!when || !(when instanceof Date) || isNaN(when.getTime())) return '';
+  const mins = Math.round((Date.now() - when.getTime()) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const h = Math.round(mins / 60);
+  if (h < 24) return h + 'h ago';
+  return Math.round(h / 24) + 'd ago';
+}
+
 // ---- rendering (pure) ----------------------------------------------------
 
 function esc_(s) {
@@ -201,7 +228,19 @@ function renderHero_(model, t) {
       '<div class="t r"><div class="clock mono">' + esc_(h.arrive || '–') + '</div><div class="sub">Arrive ' + esc_(h.dest) + '</div></div></div>' +
     '</div><div class="perf" aria-hidden="true"></div>' +
     '<div class="pass-bot"><div class="flightnos">' + fnos + '</div>' +
-      '<span class="status ok"><span class="dot"></span>Scheduled</span></div></section>';
+      heroStatus_(t) + '</div></section>';
+}
+
+function heroStatus_(t) {
+  const si = statusInfo_(t.segs[0]);
+  const label = si ? si.label : 'Scheduled';
+  const col = !si ? '#8fe6b6'
+    : si.cls === 'warn' ? '#ffcf7a'
+    : si.cls === 'crit' ? '#ff9b8a'
+    : si.cls === 'muted' ? '#cfe0d6' : '#8fe6b6';
+  const ago = t.segs[0] ? agoText_(t.segs[0].statusUpdated) : '';
+  return '<span class="status" style="color:' + col + '"><span class="dot" style="background:' + col + '"></span>' +
+    esc_(label) + (ago ? ' <span style="opacity:.7;font-weight:500">· ' + esc_(ago) + '</span>' : '') + '</span>';
 }
 
 function renderStats_(model) {
@@ -243,7 +282,17 @@ function renderSegDetail_(s) {
         '<div class="pline"></div>' + (s.duration ? '<div class="dur mono">' + esc_(s.duration) + '</div>' : '') + '</div>' +
       '<div class="pt r"><div class="c mono">' + esc_(s.dest || '–') + '</div><div class="tm mono">' + esc_(s.arrive || '') + '</div>' +
         (s.arrTerminal ? '<div class="term">Term ' + esc_(s.arrTerminal) + '</div>' : '') + '</div>' +
-    '</div>' + (metaBits ? '<div class="segd-meta">' + metaBits + '</div>' : '') + '</div>';
+    '</div>' + (metaBits ? '<div class="segd-meta">' + metaBits + '</div>' : '') +
+    segStatusRow_(s) + '</div>';
+}
+
+function segStatusRow_(s) {
+  const si = statusInfo_(s);
+  if (!si) return '';
+  const ago = agoText_(s.statusUpdated);
+  return '<div class="segd-status"><span class="chip ' + si.cls + '">' + esc_(si.label) + '</span>' +
+    (s.liveGate ? '<span class="segd-ago">Gate ' + esc_(s.liveGate) + '</span>' : '') +
+    (ago ? '<span class="segd-ago">· updated ' + esc_(ago) + '</span>' : '') + '</div>';
 }
 
 function renderCalendar_(model) {
@@ -304,8 +353,8 @@ var HEAD_ =
 '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
 '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&family=Playfair+Display:ital,wght@0,700;0,900;1,700;1,900&display=swap">' +
 '<style>' +
-':root{--bg:#eef2ea;--surface:#ffffff;--surface-2:#f1f6ef;--ink:#0d2c20;--ink-2:#48604f;--ink-3:#84948a;--line:#dbe6dd;--accent:#005c46;--accent-bg:#dbebe1;--accent-ink:#005c46;--good:#005c46;--pill:#e7f0e9;--pill-ink:#005c46;--font-display:"Playfair Display",Georgia,serif;--shadow:0 1px 2px rgba(0,46,32,.06),0 8px 24px rgba(0,46,32,.07)}' +
-'@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#002a1b;--surface:#014030;--surface-2:#015138;--ink:#eaf3ed;--ink-2:#a3c6b3;--ink-3:#6c9282;--line:#0c5540;--accent:#6fdba6;--accent-bg:rgba(111,219,166,.15);--accent-ink:#88e6ba;--good:#6fdba6;--pill:#eef4ee;--pill-ink:#005c46;--shadow:0 1px 2px rgba(0,0,0,.45),0 10px 30px rgba(0,0,0,.4)}}' +
+':root{--bg:#eef2ea;--surface:#ffffff;--surface-2:#f1f6ef;--ink:#0d2c20;--ink-2:#48604f;--ink-3:#84948a;--line:#dbe6dd;--accent:#005c46;--accent-bg:#dbebe1;--accent-ink:#005c46;--good:#005c46;--warn:#b26a00;--warn-bg:#f7ead2;--crit:#b23b2e;--crit-bg:#f6ded9;--pill:#e7f0e9;--pill-ink:#005c46;--font-display:"Playfair Display",Georgia,serif;--shadow:0 1px 2px rgba(0,46,32,.06),0 8px 24px rgba(0,46,32,.07)}' +
+'@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#002a1b;--surface:#014030;--surface-2:#015138;--ink:#eaf3ed;--ink-2:#a3c6b3;--ink-3:#6c9282;--line:#0c5540;--accent:#6fdba6;--accent-bg:rgba(111,219,166,.15);--accent-ink:#88e6ba;--good:#6fdba6;--warn:#e9b45c;--warn-bg:rgba(233,180,92,.16);--crit:#ec7d67;--crit-bg:rgba(236,125,103,.16);--pill:#eef4ee;--pill-ink:#005c46;--shadow:0 1px 2px rgba(0,0,0,.45),0 10px 30px rgba(0,0,0,.4)}}' +
 '*{box-sizing:border-box}' +
 'body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}' +
 '.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}' +
@@ -365,6 +414,8 @@ var HEAD_ =
 '.segd-meta{margin-top:8px;font-size:12px;color:var(--ink-2)}' +
 '.layover{margin:0 0 0 auto;text-align:center;font-size:11.5px;color:var(--accent-ink);background:var(--accent-bg);border-radius:999px;padding:4px 10px;width:fit-content}' +
 '.stay{display:flex;align-items:center;gap:10px;margin:2px 0;color:var(--ink-3);font-size:11px;letter-spacing:.04em;text-transform:uppercase}.stay::before,.stay::after{content:"";height:1px;background:var(--line);flex:1}' +
+'.chip{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap}.chip.info{color:var(--ink-2);background:var(--surface-2)}.chip.landed,.chip.muted{color:var(--ink-2);background:var(--surface-2)}.chip.good{color:var(--good);background:var(--accent-bg)}.chip.warn{color:var(--warn);background:var(--warn-bg)}.chip.crit{color:var(--crit);background:var(--crit-bg)}.chip.accent{color:var(--accent-ink);background:var(--accent-bg)}' +
+'.segd-status{display:flex;align-items:center;gap:8px;margin-top:8px}.segd-ago{font-size:10.5px;color:var(--ink-3)}' +
 '.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:12px 12px 14px}' +
 '.yrchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch}' +
 '.yrchip{flex:0 0 auto;font:600 12px "IBM Plex Sans",sans-serif;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer}' +

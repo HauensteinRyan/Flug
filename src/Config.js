@@ -14,6 +14,14 @@ const DEFAULTS = {
   // Save parsed flights to the Flug Flights sheet (the app's database).
   STORE_FLIGHTS: 'true',
 
+  // Live flight status (delay/gate/status) via AeroDataBox on RapidAPI.
+  // Paste your RapidAPI key here (or as a Script Property) to enable it.
+  // Free tier is 600 requests/month, so we only check near-term flights.
+  FLIGHT_API_KEY: '',
+  FLIGHT_API_HOST: 'aerodatabox.p.rapidapi.com',
+  // Only refresh flights departing within this many hours (and up to 6h past).
+  STATUS_WINDOW_HOURS: '48',
+
   // Forward matched confirmation emails to a travel app's email-import
   // address. Off by default — Flighty's email import needs a paid Pro plan;
   // TripIt (plans@tripit.com) accepts forwards for free. Set to 'true' and

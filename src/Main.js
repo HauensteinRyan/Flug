@@ -37,10 +37,16 @@ function setup() {
     builder.everyMinutes(pick).create();
   }
 
-  console.log('Flug is set up. Scanning every ' + minutes + ' minutes.');
-  if (!cfg('CHAT_WEBHOOK_URL')) {
-    console.log('Note: CHAT_WEBHOOK_URL is empty — set it in Project Settings → ' +
-      'Script Properties to get Google Chat notifications.');
+  // Hourly live-status refresh (a no-op until FLIGHT_API_KEY is set; it only
+  // hits the API for flights departing soon, so it stays inside the quota).
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'refreshStatus') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('refreshStatus').timeBased().everyHours(1).create();
+
+  console.log('Flug is set up. Scanning every ' + minutes + ' minutes; live status hourly.');
+  if (!cfg('FLIGHT_API_KEY')) {
+    console.log('Live status is off until you set FLIGHT_API_KEY in Script Properties.');
   }
 }
 
