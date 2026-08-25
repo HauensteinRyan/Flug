@@ -60,6 +60,20 @@ function refreshStatus() {
   console.log('Status refresh: ' + targets.length + ' near-term flight(s), ' + calls + ' API call(s), ' + updated + ' updated.');
 }
 
+/** Log the live-status values stored for each flight (to verify the data). */
+function checkStatus() {
+  let any = 0;
+  readFlights().forEach(function (f) {
+    if (f.liveStatus || f.statusUpdated) {
+      any++;
+      console.log(f.flightNo + '  ' + f.origin + '→' + f.dest + '  ' + f.date +
+        '  | status="' + f.liveStatus + '" delay=' + f.delayMin + ' gate=' + f.liveGate +
+        ' updated=' + f.statusUpdated);
+    }
+  });
+  console.log(any ? '(' + any + ' row(s) with stored status above)' : 'No stored status found yet — run refreshStatus.');
+}
+
 /** From the API's list of matching flights, pick the leg leaving our origin. */
 function pickLeg_(list, origin) {
   for (let i = 0; i < list.length; i++) {
