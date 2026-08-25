@@ -15,7 +15,10 @@ function setup() {
   // in Project Settings → Script Properties without touching code.
   const props = PropertiesService.getScriptProperties();
   for (const key in DEFAULTS) {
-    if (props.getProperty(key) === null) props.setProperty(key, DEFAULTS[key]);
+    // Only seed properties that have a real default; leaving optional ones
+    // (empty defaults) unset avoids blank rows the Script Properties editor
+    // refuses to save.
+    if (DEFAULTS[key] !== '' && props.getProperty(key) === null) props.setProperty(key, DEFAULTS[key]);
   }
 
   getOrCreateLabel_();
