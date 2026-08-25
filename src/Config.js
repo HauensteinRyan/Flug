@@ -31,11 +31,14 @@ const DEFAULTS = {
   FORWARD_TO_FLIGHTY: 'false',
   FLIGHTY_ADDRESS: 'track@my.flightyapp.com',
 
-  // Create Google Calendar events for detected flights.
+  // Sync trips to Google Calendar (one tied-together event per trip).
   ADD_TO_CALENDAR: 'true',
-  // Calendar to add events to: empty = your default calendar, or a calendar
-  // ID (Google Calendar → calendar settings → "Integrate calendar") to keep
-  // flights in their own calendar.
+  // Name of the dedicated green Flights calendar Flug creates.
+  FLIGHT_CALENDAR_NAME: 'Flights',
+  // Auto-share that calendar (read-only) with this email. Empty = don't share.
+  SHARE_CALENDAR_WITH: '',
+  // Optional: use an existing calendar instead of the dedicated one — a
+  // calendar ID (Google Calendar → settings → "Integrate calendar").
   CALENDAR_ID: '',
   // Event length in hours when a departure time was parsed from the email.
   // (When no time is found, an all-day event is created instead.)

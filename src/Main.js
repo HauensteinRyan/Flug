@@ -360,10 +360,13 @@ function scan_(windowDays, opts) {
         }
       }
 
+      const segs = ((opts.store || opts.calendar) && meta.bookingConfirmation)
+        ? extractFlights(message) : null;
+
       meta.stored = 0;
       if (opts.store && meta.bookingConfirmation) {
         try {
-          meta.stored = upsertFlights(extractFlights(message));
+          meta.stored = upsertFlights(segs);
         } catch (e) {
           console.error('Store to sheet failed for "' + message.getSubject() + '": ' + e);
         }
@@ -372,7 +375,7 @@ function scan_(windowDays, opts) {
       meta.eventsCreated = 0;
       if (opts.calendar && meta.bookingConfirmation) {
         try {
-          meta.eventsCreated = addToCalendar(message, parsed, meta);
+          meta.eventsCreated = addTripToCalendar(segs, 'https://mail.google.com/mail/u/0/#all/' + message.getId());
         } catch (e) {
           console.error('Calendar update failed for "' + message.getSubject() + '": ' + e);
         }
