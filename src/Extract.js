@@ -18,11 +18,13 @@
  */
 
 function extractFlights(message) {
-  let segments = extractFromJsonLd_(message);
-  if (segments.length) return segments;
-  segments = extractAmTravLayout_(message);
+  // Cheap text parsers first (getPlainBody); the JSON-LD path calls the
+  // expensive getBody() and only runs when the text parsers find nothing.
+  let segments = extractAmTravLayout_(message);
   if (segments.length) return segments;
   segments = extractDeltaLayout_(message);
+  if (segments.length) return segments;
+  segments = extractFromJsonLd_(message);
   if (segments.length) return segments;
   return extractHeuristic_(message);
 }

@@ -59,7 +59,8 @@ function resetFlights() {
 
 /**
  * Insert or update rows for the given segments, merging fields on an existing
- * key. Returns the number of newly added rows.
+ * key. Batched: reads the sheet once and writes once, so it stays fast even
+ * for a full-history sync. Returns the number of newly added rows.
  */
 function upsertFlights(segments) {
   if (!segments || !segments.length) return 0;
@@ -67,9 +68,9 @@ function upsertFlights(segments) {
   const tz = Session.getScriptTimeZone();
 
   const lastRow = sheet.getLastRow();
-  const data = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, COL).getValues() : [];
-  const rowOf = {};
-  data.forEach(function (r, i) { rowOf[r[0]] = i + 2; });
+  const rows = lastRow > 1 ? sheet.getRange(2, 1, lastRow - 1, COL).getValues() : [];
+  const idxOf = {};
+  rows.forEach(function (r, i) { idxOf[r[0]] = i; });
 
   const now = new Date();
   let added = 0;
@@ -90,25 +91,22 @@ function upsertFlights(segments) {
       seg.depTerminal || '', seg.arrTerminal || '', seg.source || '', now,
     ];
 
-    if (rowOf[key]) {
-      const existing = data[rowOf[key] - 2];
-      const merged = row.map(function (v, idx) {
-        if (idx === COL - 1) return now;            // Updated: always now
-        if (idx === 0) return v;                    // Key: unchanged
+    if (key in idxOf) {
+      const ex = rows[idxOf[key]];
+      rows[idxOf[key]] = row.map(function (v, idx) {
+        if (idx === COL - 1) return now; // Updated: always now
+        if (idx === 0) return v;         // Key: unchanged
         const nv = v == null ? '' : String(v).trim();
-        const ov = existing[idx];
-        return nv !== '' ? v : ov;                  // keep new if present, else old
+        return nv !== '' ? v : ex[idx];  // keep new if present, else old
       });
-      sheet.getRange(rowOf[key], 1, 1, COL).setValues([merged]);
-      existing.splice(0, existing.length, ...merged); // keep snapshot current
     } else {
-      sheet.appendRow(row);
-      rowOf[key] = sheet.getLastRow();
-      data.push(row);
+      rows.push(row);
+      idxOf[key] = rows.length - 1;
       added++;
     }
   });
 
+  if (rows.length) sheet.getRange(2, 1, rows.length, COL).setValues(rows);
   return added;
 }
 

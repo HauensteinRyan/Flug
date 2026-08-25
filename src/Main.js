@@ -62,7 +62,8 @@ function syncNow(days) {
   const window = days || 365;
   const threads = GmailApp.search(buildBookingQuery(window), 0, 150);
   const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
-  let added = 0, segs = 0, emails = 0;
+  const all = [];
+  let emails = 0;
 
   threads.forEach(function (thread) {
     thread.getMessages().forEach(function (message) {
@@ -73,13 +74,14 @@ function syncNow(days) {
       const meta = classifyMessage(message, parsed);
       if (!meta || !meta.bookingConfirmation) return;
       const flights = extractFlights(message);
-      if (!flights.length) return;
-      emails++; segs += flights.length;
-      try { added += upsertFlights(flights); } catch (e) { console.error('Store failed: ' + e); }
+      if (flights.length) { emails++; flights.forEach(function (f) { all.push(f); }); }
     });
   });
 
-  console.log('Synced ' + emails + ' booking email(s), ' + segs + ' segment(s); ' + added + ' new row(s).');
+  // Single batched write (one sheet read + one write) so a full-history
+  // sync stays well under the execution-time limit.
+  const added = upsertFlights(all);
+  console.log('Synced ' + emails + ' booking email(s), ' + all.length + ' segment(s); ' + added + ' new row(s).');
   flightSheetUrl();
 }
 
