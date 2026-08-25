@@ -10,7 +10,8 @@
  */
 
 function refreshStatus() {
-  const key = cfg('FLIGHT_API_KEY');
+  // Trim whitespace and any stray surrounding quotes pasted with the key.
+  const key = (cfg('FLIGHT_API_KEY') || '').trim().replace(/^['"]+|['"]+$/g, '');
   if (!key) { console.log('Live status off: set the FLIGHT_API_KEY script property to enable.'); return; }
   const host = cfg('FLIGHT_API_HOST') || 'aerodatabox.p.rapidapi.com';
 
@@ -44,7 +45,7 @@ function refreshStatus() {
     const code = resp.getResponseCode();
     if (code === 429) { console.warn('Quota reached (429) — keeping last-known status.'); break; }
     if (code === 204) { writeStatus_(f.key, { status: 'Unverified', updated: new Date() }); Utilities.sleep(1100); continue; }
-    if (code >= 400) { console.warn('Status ' + code + ' for ' + fn + ' — skipping (last-known kept).'); Utilities.sleep(1100); continue; }
+    if (code >= 400) { console.warn('Status ' + code + ' for ' + fn + ': ' + resp.getContentText().slice(0, 200)); Utilities.sleep(1100); continue; }
 
     let data;
     try { data = JSON.parse(resp.getContentText()); } catch (e) { Utilities.sleep(1100); continue; }
