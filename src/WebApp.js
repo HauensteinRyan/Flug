@@ -23,28 +23,43 @@ function buildModel(flights, now) {
     (tripMap[id] = tripMap[id] || []).push(f);
   });
 
+  const LAYOVER_MAX = 360; // minutes; a longer gap is a stay, not a connection
   const trips = Object.keys(tripMap).map(function (id) {
     const segs = tripMap[id].slice().sort(cmpISO_);
     const first = segs[0], last = segs[segs.length - 1];
     const startDT = parseISO_(first.departISO);
     const endDT = parseISO_(last.arriveISO) || parseISO_(last.departISO) || startDT;
 
-    const layovers = [];
+    // Gap between consecutive segments: short = layover (connection),
+    // long = a stay at that airport. The longest stay is the destination.
+    const gaps = [];
+    let turnIdx = segs.length - 1, maxStay = -1, primaryDest = last.dest;
     for (let i = 0; i < segs.length - 1; i++) {
       const a = parseISO_(segs[i].arriveISO), d = parseISO_(segs[i + 1].departISO);
-      if (a && d && segs[i].dest && segs[i].dest === segs[i + 1].origin && d > a) {
-        layovers.push({ mins: Math.round((d - a) / 60000), airport: segs[i].dest });
-      } else {
-        layovers.push(null);
-      }
+      const mins = (a && d && d > a) ? Math.round((d - a) / 60000) : null;
+      const layover = mins != null && mins < LAYOVER_MAX && segs[i].dest === segs[i + 1].origin;
+      gaps.push({ mins: mins, airport: segs[i].dest, layover: layover });
+      if (!layover && mins != null && mins > maxStay) { maxStay = mins; primaryDest = segs[i].dest; turnIdx = i; }
     }
 
+    const returnsHome = last.dest && first.origin && last.dest === first.origin;
+    const headline = returnsHome ? first.origin + ' ⇄ ' + primaryDest : first.origin + ' → ' + last.dest;
+
+    // Outbound sub-journey (start → primary destination) drives the hero.
+    const ob = segs.slice(0, turnIdx + 1);
+    const hero = {
+      origin: ob[0].origin, dest: ob[ob.length - 1].dest,
+      depart: ob[0].depart, arrive: ob[ob.length - 1].arrive,
+      flightNos: ob.map(function (s) { return s.flightNo; }).filter(Boolean),
+      stops: ob.length - 1,
+      stopCodes: ob.slice(0, -1).map(function (s) { return s.dest; }).filter(Boolean),
+      date: first.date, confirmation: first.confirmation || '',
+    };
+
     return {
-      id: id, confirmation: first.confirmation || '', segs: segs, layovers: layovers,
+      id: id, confirmation: first.confirmation || '', segs: segs, gaps: gaps,
+      headline: headline, hero: hero,
       origin: first.origin, dest: last.dest,
-      stops: segs.length - 1,
-      stopCodes: segs.slice(0, -1).map(function (s) { return s.dest; }).filter(Boolean),
-      date: first.date, depart: first.depart, arrive: last.arrive,
       dateRange: first.date + (last.date && last.date !== first.date ? ' – ' + last.date : ''),
       flightNos: segs.map(function (s) { return s.flightNo; }).filter(Boolean),
       start: dayOnly_(startDT), end: dayOnly_(endDT),
@@ -100,6 +115,12 @@ function fmtDur_(mins) {
   const h = Math.floor(mins / 60), m = mins % 60;
   return (h ? h + 'h' : '') + (h && m ? ' ' : '') + (m ? m + 'm' : (h ? '' : '0m'));
 }
+function fmtStay_(mins) {
+  if (mins == null) return '';
+  const days = Math.floor(mins / 1440);
+  if (days >= 1) return days + ' day' + (days > 1 ? 's' : '');
+  return Math.max(1, Math.round(mins / 60)) + 'h';
+}
 
 // ---- rendering (pure) ----------------------------------------------------
 
@@ -124,32 +145,33 @@ function renderPage(model) {
     : '';
 
   return HEAD_ + '<div class="shell">' +
-    '<header class="topbar"><div class="brand"><span class="glyph">✈</span><span>Flug<small>flights</small></span></div></header>' +
+    '<header class="topbar"><div class="brand"><span class="wordmark">Flug</span><span class="tag">flights</span></div></header>' +
     emptyMsg + hero + stats + cal + upSection + pastSection +
     '<footer class="foot">Updates automatically from your booking emails. Times are each airport’s local time. ' +
     'Live status isn’t tracked — schedule only.</footer></div>' + FOOT_;
 }
 
 function renderHero_(model, t) {
+  const h = t.hero;
   const cd = model.daysToNext === 0 ? 'Today' : model.daysToNext === 1 ? 'Tomorrow'
     : model.daysToNext != null ? 'In ' + model.daysToNext + ' days' : '';
-  const stop = t.stops > 0
-    ? '<span class="stop mono">' + t.stops + ' STOP' + (t.stops > 1 ? 'S' : '') + (t.stopCodes.length ? ' · ' + esc_(t.stopCodes.join(' · ')) : '') + '</span>'
+  const stop = h.stops > 0
+    ? '<span class="stop mono">' + h.stops + ' STOP' + (h.stops > 1 ? 'S' : '') + (h.stopCodes.length ? ' · ' + esc_(h.stopCodes.join(' · ')) : '') + '</span>'
     : '<span class="stop mono">NONSTOP</span>';
-  const fnos = t.flightNos.map(function (f) { return '<span class="fchip mono">' + esc_(f) + '</span>'; }).join('');
+  const fnos = h.flightNos.map(function (f) { return '<span class="fchip mono">' + esc_(f) + '</span>'; }).join('');
   return '<div class="lbl">Next flight' + (cd ? ' · ' + esc_(cd.toLowerCase()) : '') + '</div>' +
   '<section class="pass"><div class="pass-top">' +
-    '<div class="pass-eyebrow"><span>' + esc_(String(t.date || '').toUpperCase()) + '</span>' +
-      (t.confirmation ? '<span class="countdown mono">CONF&nbsp;' + esc_(t.confirmation) + '</span>' : '') + '</div>' +
+    '<div class="pass-eyebrow"><span>' + esc_(String(h.date || '').toUpperCase()) + '</span>' +
+      (h.confirmation ? '<span class="countdown mono">CONF&nbsp;' + esc_(h.confirmation) + '</span>' : '') + '</div>' +
     '<div class="route">' +
-      '<div class="port"><div class="code mono">' + esc_(t.origin || '–') + '</div></div>' +
+      '<div class="port"><div class="code mono">' + esc_(h.origin || '–') + '</div></div>' +
       '<div class="arc" aria-hidden="true"><svg viewBox="0 0 92 46" fill="none">' +
         '<path d="M4 40 C 30 2, 62 2, 88 40" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 4" opacity=".8"/>' +
         '<circle cx="46" cy="9.4" r="2.6" fill="currentColor"/></svg>' + stop + '</div>' +
-      '<div class="port"><div class="code mono">' + esc_(t.dest || '–') + '</div></div></div>' +
+      '<div class="port"><div class="code mono">' + esc_(h.dest || '–') + '</div></div></div>' +
     '<div class="pass-times">' +
-      '<div class="t"><div class="clock mono">' + esc_(t.depart || '–') + '</div><div class="sub">Depart ' + esc_(t.origin) + '</div></div>' +
-      '<div class="t r"><div class="clock mono">' + esc_(t.arrive || '–') + '</div><div class="sub">Arrive ' + esc_(t.dest) + '</div></div></div>' +
+      '<div class="t"><div class="clock mono">' + esc_(h.depart || '–') + '</div><div class="sub">Depart ' + esc_(h.origin) + '</div></div>' +
+      '<div class="t r"><div class="clock mono">' + esc_(h.arrive || '–') + '</div><div class="sub">Arrive ' + esc_(h.dest) + '</div></div></div>' +
     '</div><div class="perf" aria-hidden="true"></div>' +
     '<div class="pass-bot"><div class="flightnos">' + fnos + '</div>' +
       '<span class="status ok"><span class="dot"></span>Scheduled</span></div></section>';
@@ -163,15 +185,21 @@ function renderStats_(model) {
 }
 
 function renderTrip_(t, open) {
-  const meta = esc_(t.dateRange) + ' · ' + (t.stops > 0 ? t.stops + ' stop' + (t.stops > 1 ? 's' : '') : 'Nonstop');
+  const n = t.segs.length;
+  const meta = esc_(t.dateRange) + ' · ' + n + ' flight' + (n > 1 ? 's' : '');
   let body = '';
   t.segs.forEach(function (s, i) {
     body += renderSegDetail_(s);
-    const lay = t.layovers[i];
-    if (lay) body += '<div class="layover">Layover ' + esc_(fmtDur_(lay.mins)) + ' · ' + esc_(lay.airport) + '</div>';
+    const g = t.gaps[i];
+    if (!g) return;
+    if (g.layover && g.mins != null) {
+      body += '<div class="layover">Layover ' + esc_(fmtDur_(g.mins)) + ' · ' + esc_(g.airport) + '</div>';
+    } else if (g.mins != null) {
+      body += '<div class="stay"><span>' + esc_(fmtStay_(g.mins)) + ' in ' + esc_(g.airport) + '</span></div>';
+    }
   });
   return '<details class="trip"' + (open ? ' open' : '') + '>' +
-    '<summary class="trip-sum"><div class="ts-main"><span class="where">' + esc_(t.origin) + ' → ' + esc_(t.dest) + '</span>' +
+    '<summary class="trip-sum"><div class="ts-main"><span class="where">' + esc_(t.headline) + '</span>' +
       '<span class="ts-meta">' + meta + '</span></div>' +
       (t.confirmation ? '<span class="ts-conf mono">' + esc_(t.confirmation) + '</span>' : '') +
       '<span class="chev" aria-hidden="true">›</span></summary>' +
@@ -229,21 +257,21 @@ function renderCalendar_(model) {
 var HEAD_ =
 '<link rel="preconnect" href="https://fonts.googleapis.com">' +
 '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>' +
-'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&display=swap">' +
+'<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Sans+Condensed:wght@600;700&family=Playfair+Display:ital,wght@0,700;0,900;1,700;1,900&display=swap">' +
 '<style>' +
-':root{--bg:#e9edf3;--surface:#fff;--surface-2:#f3f6fb;--ink:#0f1826;--ink-2:#53627a;--ink-3:#8492a6;--line:#dde4ee;--accent:#b06a12;--accent-bg:#f3e4cd;--accent-ink:#6b3f08;--good:#1e895a;--shadow:0 1px 2px rgba(16,24,38,.06),0 8px 24px rgba(16,24,38,.06)}' +
-'@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#0a0e15;--surface:#131a25;--surface-2:#1a2432;--ink:#e9eff8;--ink-2:#9cafc7;--ink-3:#63748c;--line:#253143;--accent:#f4b24c;--accent-bg:#33270f;--accent-ink:#f4b24c;--good:#48c58b;--shadow:0 1px 2px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35)}}' +
+':root{--bg:#eef2ea;--surface:#ffffff;--surface-2:#f1f6ef;--ink:#0d2c20;--ink-2:#48604f;--ink-3:#84948a;--line:#dbe6dd;--accent:#005c46;--accent-bg:#dbebe1;--accent-ink:#005c46;--good:#005c46;--pill:#e7f0e9;--pill-ink:#005c46;--font-display:"Playfair Display",Georgia,serif;--shadow:0 1px 2px rgba(0,46,32,.06),0 8px 24px rgba(0,46,32,.07)}' +
+'@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#002a1b;--surface:#014030;--surface-2:#015138;--ink:#eaf3ed;--ink-2:#a3c6b3;--ink-3:#6c9282;--line:#0c5540;--accent:#6fdba6;--accent-bg:rgba(111,219,166,.15);--accent-ink:#88e6ba;--good:#6fdba6;--pill:#eef4ee;--pill-ink:#005c46;--shadow:0 1px 2px rgba(0,0,0,.45),0 10px 30px rgba(0,0,0,.4)}}' +
 '*{box-sizing:border-box}' +
 'body{margin:0;background:var(--bg);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased}' +
 '.mono{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}' +
 '.shell{max-width:460px;margin:0 auto;padding:0 16px 48px}' +
-'.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:14px 2px 12px;background:linear-gradient(var(--bg) 72%,transparent)}' +
-'.brand{display:flex;align-items:center;gap:9px;font-weight:700;font-size:17px}' +
-'.brand .glyph{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--accent);color:#fff;font-size:15px}' +
-'.brand small{color:var(--ink-3);font-weight:500;font-size:11px;letter-spacing:.12em;text-transform:uppercase;margin-left:2px}' +
-'.lbl{margin:26px 2px 11px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;color:var(--ink-3)}' +
+'.topbar{position:sticky;top:0;z-index:10;display:flex;align-items:baseline;gap:10px;padding:16px 2px 12px;background:linear-gradient(var(--bg) 72%,transparent)}' +
+'.brand{display:flex;align-items:baseline;gap:9px}' +
+'.brand .wordmark{font-family:var(--font-display);font-style:italic;font-weight:900;font-size:23px;letter-spacing:.01em;line-height:1;color:var(--pill-ink);background:var(--pill);padding:5px 16px 7px;border-radius:999px}' +
+'.brand .tag{color:var(--ink-3);font-weight:500;font-size:11px;letter-spacing:.14em;text-transform:uppercase}' +
+'.lbl{margin:26px 2px 11px;font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:600;color:var(--accent)}' +
 '.empty{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px;color:var(--ink-2);box-shadow:var(--shadow);margin-top:8px}' +
-'.pass{position:relative;border-radius:20px;overflow:hidden;background:radial-gradient(130% 100% at 82% -12%,rgba(244,178,76,.5),transparent 52%),linear-gradient(158deg,#1b2a45 0%,#26364f 44%,#8a5a25 100%);color:#f7f3ec;box-shadow:var(--shadow)}' +
+'.pass{position:relative;border-radius:20px;overflow:hidden;background:radial-gradient(130% 100% at 82% -12%,rgba(120,224,178,.30),transparent 55%),linear-gradient(158deg,#00402f 0%,#005c46 45%,#00281a 100%);color:#eef4ec;box-shadow:var(--shadow)}' +
 '.pass-top{padding:18px 20px 20px}' +
 '.pass-eyebrow{display:flex;align-items:center;justify-content:space-between;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:rgba(247,243,236,.72)}' +
 '.countdown{background:rgba(255,255,255,.16);padding:3px 9px;border-radius:999px;color:#fff;font-weight:600}' +
@@ -280,7 +308,7 @@ var HEAD_ =
 '.trip-sum{list-style:none;cursor:pointer;display:flex;align-items:center;gap:10px;padding:14px 15px}' +
 '.trip-sum::-webkit-details-marker{display:none}' +
 '.ts-main{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}' +
-'.ts-main .where{font-weight:600;font-size:15px}.ts-meta{font-size:12px;color:var(--ink-2)}' +
+'.ts-main .where{font-family:var(--font-display);font-style:italic;font-weight:800;font-size:17px;letter-spacing:.01em}.ts-meta{font-size:12px;color:var(--ink-2)}' +
 '.ts-conf{font-size:11px;color:var(--ink-3);background:var(--surface-2);padding:3px 7px;border-radius:6px}' +
 '.chev{color:var(--ink-3);font-size:20px;transition:transform .18s ease;line-height:1}' +
 'details[open] .chev{transform:rotate(90deg)}' +
@@ -291,6 +319,7 @@ var HEAD_ =
 '.pmid{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:74px}.pmid .fn{font-size:11.5px;color:var(--ink-2);font-weight:500}.pmid .pline{height:2px;width:100%;background:repeating-linear-gradient(90deg,var(--line) 0 4px,transparent 4px 7px)}.pmid .dur{font-size:10.5px;color:var(--ink-3)}' +
 '.segd-meta{margin-top:8px;font-size:12px;color:var(--ink-2)}' +
 '.layover{margin:0 0 0 auto;text-align:center;font-size:11.5px;color:var(--accent-ink);background:var(--accent-bg);border-radius:999px;padding:4px 10px;width:fit-content}' +
+'.stay{display:flex;align-items:center;gap:10px;margin:2px 0;color:var(--ink-3);font-size:11px;letter-spacing:.04em;text-transform:uppercase}.stay::before,.stay::after{content:"";height:1px;background:var(--line);flex:1}' +
 '.foot{margin-top:26px;padding:14px 4px 0;border-top:1px solid var(--line);color:var(--ink-3);font-size:12px;line-height:1.55}' +
 '</style>';
 
