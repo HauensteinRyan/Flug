@@ -5,17 +5,22 @@
  * paid feed; everything here comes from your booking emails.
  */
 
-function doGet() {
+function doGet(e) {
+  const param = (e && e.parameter && e.parameter.admin) ? String(e.parameter.admin) : '';
+  const admin = !!param && param === getAdminToken_();
   const model = buildModel(readFlights(), new Date());
-  return HtmlService.createHtmlOutput(renderPage(model))
+  return HtmlService.createHtmlOutput(renderPage(model, { admin: admin, token: param }))
     .setTitle('Flug Flights')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
+
+var _adminMode = false;
 
 // ---- model (pure) --------------------------------------------------------
 
 function buildModel(flights, now) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  flights = flights.filter(function (f) { return !f.hidden; }); // erased flights
 
   const tripMap = {};
   flights.forEach(function (f) {
@@ -193,7 +198,11 @@ function esc_(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-function renderPage(model) {
+function renderPage(model, opts) {
+  _adminMode = !!(opts && opts.admin);
+  const adminScript = _adminMode
+    ? '<script>window.FLUG_ADMIN=' + JSON.stringify(opts.token) + ';(function(){document.addEventListener("click",function(e){var b=e.target.closest?e.target.closest(".rm-btn"):null;if(!b)return;e.preventDefault();e.stopPropagation();if(!confirm("Remove this flight from Flug? (it won\\u0027t come back on re-sync)"))return;b.textContent="removing…";google.script.run.withSuccessHandler(function(){location.reload();}).withFailureHandler(function(err){alert("Delete failed: "+((err&&err.message)||err));b.textContent="Remove flight";}).deleteFlight(b.getAttribute("data-key"),window.FLUG_ADMIN);});})();</script>'
+    : '';
   const hero = model.nextSeg ? renderHero_(model, model.nextSeg) : '';
   const stats = model.empty ? '' : renderStats_(model);
   const map = model.empty ? '' : renderMap_(model);
@@ -209,11 +218,13 @@ function renderPage(model) {
     ? '<div class="empty">No flights yet. Once a booking confirmation lands in Gmail, it shows up here automatically.</div>'
     : '';
 
+  const banner = _adminMode ? '<div class="adminbar">Edit mode — tap “Remove flight” on any leg to erase it.</div>' : '';
+
   return HEAD_ + '<div class="shell">' +
     '<header class="topbar"><div class="brand"><span class="wordmark">Flug</span><span class="tag">flights</span></div></header>' +
-    emptyMsg + hero + stats + map + cal + upSection + pastSection +
+    banner + emptyMsg + hero + stats + map + cal + upSection + pastSection +
     '<footer class="foot">Updates automatically from your booking emails. Times are each airport’s local time. ' +
-    'Live status isn’t tracked — schedule only.</footer></div>' + FOOT_;
+    'Live status isn’t tracked — schedule only.</footer></div>' + adminScript + FOOT_;
 }
 
 function renderHero_(model, s) {
@@ -291,7 +302,9 @@ function renderSegDetail_(s) {
       '<div class="pt r"><div class="c mono">' + esc_(s.dest || '–') + '</div><div class="tm mono">' + esc_(s.arrive || '') + '</div>' +
         (s.arrTerminal ? '<div class="term">Term ' + esc_(s.arrTerminal) + '</div>' : '') + '</div>' +
     '</div>' + (metaBits ? '<div class="segd-meta">' + metaBits + '</div>' : '') +
-    segStatusRow_(s) + '</div>';
+    segStatusRow_(s) +
+    (_adminMode ? '<button class="rm-btn" data-key="' + esc_(s.key) + '">Remove flight</button>' : '') +
+    '</div>';
 }
 
 function segStatusRow_(s) {
@@ -437,6 +450,8 @@ var HEAD_ =
 '.stay{display:flex;align-items:center;gap:10px;margin:2px 0;color:var(--ink-3);font-size:11px;letter-spacing:.04em;text-transform:uppercase}.stay::before,.stay::after{content:"";height:1px;background:var(--line);flex:1}' +
 '.chip{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap}.chip.info{color:var(--ink-2);background:var(--surface-2)}.chip.landed,.chip.muted{color:var(--ink-2);background:var(--surface-2)}.chip.good{color:var(--good);background:var(--accent-bg)}.chip.warn{color:var(--warn);background:var(--warn-bg)}.chip.crit{color:var(--crit);background:var(--crit-bg)}.chip.accent{color:var(--accent-ink);background:var(--accent-bg)}' +
 '.segd-status{display:flex;align-items:center;gap:8px;margin-top:8px}.segd-ago{font-size:10.5px;color:var(--ink-3)}' +
+'.rm-btn{margin-top:10px;font:600 11.5px "IBM Plex Sans",sans-serif;color:var(--crit);background:var(--crit-bg);border:1px solid transparent;border-radius:8px;padding:5px 10px;cursor:pointer}' +
+'.adminbar{margin-top:12px;background:var(--accent-bg);color:var(--accent-ink);border-radius:10px;padding:9px 12px;font-size:12.5px;font-weight:600}' +
 '.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:12px 12px 14px}' +
 '.yrchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch}' +
 '.yrchip{flex:0 0 auto;font:600 12px "IBM Plex Sans",sans-serif;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer}' +

@@ -23,6 +23,11 @@ function setup() {
 
   getOrCreateLabel_();
 
+  // Secret token that unlocks the erase controls in the web app.
+  if (!props.getProperty('ADMIN_TOKEN')) {
+    props.setProperty('ADMIN_TOKEN', Utilities.getUuid().replace(/-/g, '').slice(0, 16));
+  }
+
   // Recreate the time-based trigger.
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'runFlightScan') ScriptApp.deleteTrigger(t);
@@ -51,6 +56,33 @@ function setup() {
   if (!cfg('FLIGHT_API_KEY')) {
     console.log('Live status is off until you set FLIGHT_API_KEY in Script Properties.');
   }
+}
+
+function getAdminToken_() {
+  return PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '';
+}
+
+/**
+ * Remove a flight from the app (called from the web app's erase button).
+ * Requires the admin token, so public viewers of the shared link can't
+ * delete anything. Hides the row rather than deleting, so a re-sync from
+ * Gmail won't bring it back.
+ */
+function deleteFlight(key, token) {
+  const admin = getAdminToken_();
+  if (!admin || String(token) !== admin) throw new Error('Not authorized to edit this flight board.');
+  return hideFlight_(String(key));
+}
+
+/** Print your private admin URL (the shared link plus the erase controls). */
+function adminUrl() {
+  let base = '';
+  try { base = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+  const token = getAdminToken_();
+  if (!base) { console.log('Deploy the web app first, then re-run adminUrl().'); return; }
+  const url = base + '?admin=' + token;
+  console.log('Your private admin URL (keep it secret — it can erase flights):\n' + url);
+  return url;
 }
 
 function runFlightScan() {
