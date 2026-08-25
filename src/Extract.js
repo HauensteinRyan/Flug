@@ -102,19 +102,28 @@ function extractAmTravLayout_(message) {
     if (dm) dateStr = dm[1].slice(0, 3) + ' ' + dm[2] + (dm[3] ? ', ' + dm[3] : '');
 
     if (codes.length < 2 && !depTimeStr) continue;
+    const origin = codes[0] || '', dest = codes[1] || '';
     const depDate = dateStr ? resolveDate(dateStr, emailDate) : null;
+    const depTime = depDate && depTimeStr ? combineDateTime_(depDate, depTimeStr) : null;
+    let arrTime = depDate && arrTimeStr ? combineDateTime_(depDate, arrTimeStr) : null;
+    if (arrTime && depTime && arrTime < depTime) arrTime = new Date(arrTime.getTime() + 86400000);
+
+    // Extra per-flight detail AmTrav includes.
+    const seat = (chunk.match(/SEAT\(?S?\)?\s*\n?\s*([0-9]{1,3}[A-K])/i) || [])[1] || '';
+    const cabin = ((chunk.match(/CABIN\s*\n?\s*([^\n]+?)\s*(?:SEAT|STOPS)/i) || [])[1] || '').trim();
+    const aircraft = ((chunk.match(/AIRCRAFT\s*\n?\s*([^\n]+)/i) || [])[1] || '').trim();
+    const duration = (chunk.match(/DURATION\s*\n?\s*(\d+h(?:\s*\d+m)?|\d+m)/i) || [])[1] || '';
+    const depTerminal = origin ? ((chunk.match(new RegExp(origin + '\\s+Terminal\\s+([A-Za-z0-9]+)', 'i')) || [])[1] || '') : '';
+    const arrTerminal = dest ? ((chunk.match(new RegExp(dest + '\\s+Terminal\\s+([A-Za-z0-9]+)', 'i')) || [])[1] || '') : '';
 
     out.push({
       confirmation: confAt(marks[i].pos),
       airline: marks[i].airline + ' Air Lines',
-      flightNo: flightNo,
-      origin: codes[0] || '',
-      dest: codes[1] || '',
-      dateStr: dateStr,
-      depTimeStr: depTimeStr,
-      arrTimeStr: arrTimeStr,
-      depDate: depDate,
-      depTime: depDate && depTimeStr ? combineDateTime_(depDate, depTimeStr) : null,
+      flightNo: flightNo, origin: origin, dest: dest,
+      dateStr: dateStr, depTimeStr: depTimeStr, arrTimeStr: arrTimeStr,
+      depDate: depDate, depTime: depTime, arrTime: arrTime,
+      seat: seat, cabin: cabin, aircraft: aircraft, duration: duration,
+      depTerminal: depTerminal, arrTerminal: arrTerminal,
       source: 'amtrav',
     });
   }
