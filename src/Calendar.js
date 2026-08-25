@@ -139,6 +139,28 @@ function syncCalendar() {
   console.log('Calendar sync: ' + made + ' new trip event(s) added.');
 }
 
+/**
+ * Fix events already created with a wrong body: clear the dedicated Flights
+ * calendar and rebuild from the corrected stored data. Only bulk-deletes the
+ * dedicated calendar — never your main/override calendar.
+ */
+function rebuildCalendar() {
+  const cal = getFlugCalendar_();
+  if (!cal) { console.log('No Flights calendar.'); return; }
+
+  if (!cfg('CALENDAR_ID')) {
+    const from = new Date(Date.now() - 730 * 86400000);
+    const to = new Date(Date.now() + 730 * 86400000);
+    let del = 0;
+    cal.getEvents(from, to).forEach(function (e) { try { e.deleteEvent(); del++; } catch (x) {} });
+    console.log('Cleared ' + del + ' event(s) from "' + cal.getName() + '".');
+  } else {
+    console.log('CALENDAR_ID is set (your own calendar) — not bulk-deleting. Remove the old events manually, then this re-adds corrected ones.');
+  }
+  PropertiesService.getScriptProperties().deleteProperty(FLUG_CAL_TRIPS_KEY);
+  syncCalendar();
+}
+
 function loadCalTrips_() {
   const raw = PropertiesService.getScriptProperties().getProperty(FLUG_CAL_TRIPS_KEY);
   const order = raw ? JSON.parse(raw) : [];

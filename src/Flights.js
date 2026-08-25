@@ -127,7 +127,10 @@ function readFlights() {
   const sheet = getFlightSheet_();
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) return [];
-  const tz = Session.getScriptTimeZone();
+  // Format date/time cells in the SPREADSHEET's timezone — that's how Sheets
+  // stored any values it auto-converted, so this recovers the exact strings
+  // (using the script tz here shifts them by a day when the zones differ).
+  const tz = sheet.getParent().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
   const values = sheet.getRange(2, 1, lastRow - 1, COL).getValues();
 
   // Sheets may auto-convert date/time-looking cells to Date objects.
