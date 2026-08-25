@@ -97,10 +97,36 @@ function buildModel(flights, now) {
     return A[0] !== B[0] ? A[0] - B[0] : A[1] - B[1];
   }).slice(0, 4);
 
+  // Map data: undirected routes between airports we have coordinates for,
+  // with how many times each was flown and in which years.
+  const coords = (typeof AIRPORT_COORDS !== 'undefined') ? AIRPORT_COORDS : {};
+  const used = {}, routeMap = {}, yearSet = {};
+  flights.forEach(function (f) {
+    const o = f.origin, d = f.dest;
+    if (!o || !d || !coords[o] || !coords[d] || o === d) return;
+    const dt = parseISO_(f.departISO);
+    const yr = dt ? dt.getFullYear() : null;
+    if (yr) yearSet[yr] = 1;
+    used[o] = 1; used[d] = 1;
+    const pair = [o, d].sort();
+    const key = pair.join('|');
+    const r = routeMap[key] || (routeMap[key] = { o: pair[0], d: pair[1], n: 0, years: [] });
+    r.n++;
+    if (yr && r.years.indexOf(yr) < 0) r.years.push(yr);
+  });
+  const mapAirports = {};
+  Object.keys(used).forEach(function (c) { mapAirports[c] = coords[c]; });
+  const mapData = {
+    airports: mapAirports,
+    routes: Object.keys(routeMap).map(function (k) { return routeMap[k]; }),
+    years: Object.keys(yearSet).map(Number).sort(function (a, b) { return b - a; }),
+  };
+
   return {
     next: upcoming.length ? upcoming[0] : null,
     upcoming: upcoming, past: past.slice(0, 12),
     daysToNext: daysToNext, trips: trips, months: months, today: today,
+    mapData: mapData,
     stats: { flights: thisYearSegs.length, trips: upcoming.length + past.length, airports: Object.keys(airports).length, upcoming: upcoming.length },
     year: year, empty: flights.length === 0,
   };
@@ -132,6 +158,7 @@ function esc_(s) {
 function renderPage(model) {
   const hero = model.next ? renderHero_(model, model.next) : '';
   const stats = model.empty ? '' : renderStats_(model);
+  const map = model.empty ? '' : renderMap_(model);
   const cal = model.empty ? '' : renderCalendar_(model);
   const up = model.upcoming.slice(model.next ? 1 : 0);
   const upSection = up.length
@@ -146,7 +173,7 @@ function renderPage(model) {
 
   return HEAD_ + '<div class="shell">' +
     '<header class="topbar"><div class="brand"><span class="wordmark">Flug</span><span class="tag">flights</span></div></header>' +
-    emptyMsg + hero + stats + cal + upSection + pastSection +
+    emptyMsg + hero + stats + map + cal + upSection + pastSection +
     '<footer class="foot">Updates automatically from your booking emails. Times are each airport’s local time. ' +
     'Live status isn’t tracked — schedule only.</footer></div>' + FOOT_;
 }
@@ -252,6 +279,21 @@ function renderCalendar_(model) {
   return '<div class="lbl">Calendar</div><section class="cals">' + grids + '</section>';
 }
 
+function renderMap_(model) {
+  const md = model.mapData;
+  if (!md || !md.routes.length) return '';
+  const chips = ['all'].concat(md.years).map(function (y, i) {
+    return '<button class="yrchip' + (i === 0 ? ' on' : '') + '" data-y="' + y + '">' +
+      (y === 'all' ? 'All time' : y) + '</button>';
+  }).join('');
+  const json = JSON.stringify(md).replace(/</g, '\\u003c');
+  return '<div class="lbl">Flight map</div>' +
+    '<section class="mapwrap"><div class="yrchips">' + chips + '</div>' +
+    '<canvas id="flugmap" class="mapcanvas"></canvas>' +
+    '<div class="mapcap" id="mapcap"></div></section>' +
+    '<script>window.FLUG_MAP=' + json + ';</script><script>' + MAP_JS + '</script>';
+}
+
 // ---- styles / document shell ---------------------------------------------
 
 var HEAD_ =
@@ -320,7 +362,69 @@ var HEAD_ =
 '.segd-meta{margin-top:8px;font-size:12px;color:var(--ink-2)}' +
 '.layover{margin:0 0 0 auto;text-align:center;font-size:11.5px;color:var(--accent-ink);background:var(--accent-bg);border-radius:999px;padding:4px 10px;width:fit-content}' +
 '.stay{display:flex;align-items:center;gap:10px;margin:2px 0;color:var(--ink-3);font-size:11px;letter-spacing:.04em;text-transform:uppercase}.stay::before,.stay::after{content:"";height:1px;background:var(--line);flex:1}' +
+'.mapwrap{background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:12px 12px 14px}' +
+'.yrchips{display:flex;gap:6px;overflow-x:auto;padding-bottom:10px;-webkit-overflow-scrolling:touch}' +
+'.yrchip{flex:0 0 auto;font:600 12px "IBM Plex Sans",sans-serif;color:var(--ink-2);background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer}' +
+'.yrchip.on{background:var(--accent);color:#fff;border-color:var(--accent)}' +
+'.mapcanvas{display:block;width:100%;height:300px}' +
+'.mapcap{margin-top:8px;font-size:11.5px;color:var(--ink-3);text-align:center;font-variant-numeric:tabular-nums}' +
 '.foot{margin-top:26px;padding:14px 4px 0;border-top:1px solid var(--line);color:var(--ink-3);font-size:12px;line-height:1.55}' +
 '</style>';
 
 var FOOT_ = '';
+
+var MAP_JS = `(function(){
+  var D=window.FLUG_MAP; var cv=document.getElementById('flugmap'); if(!cv||!D){return;}
+  var ctx=cv.getContext('2d'); var sel='all'; var cap=document.getElementById('mapcap');
+  function css(v){ try{return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}catch(e){return '';} }
+  function vis(){ return D.routes.filter(function(r){ return sel==='all'||r.years.indexOf(+sel)>=0; }); }
+  function gc(o,d,n){
+    var R=Math.PI/180, la1=o[0]*R,lo1=o[1]*R,la2=d[0]*R,lo2=d[1]*R;
+    var x1=Math.cos(la1)*Math.cos(lo1),y1=Math.cos(la1)*Math.sin(lo1),z1=Math.sin(la1);
+    var x2=Math.cos(la2)*Math.cos(lo2),y2=Math.cos(la2)*Math.sin(lo2),z2=Math.sin(la2);
+    var dot=Math.max(-1,Math.min(1,x1*x2+y1*y2+z1*z2)), ang=Math.acos(dot);
+    if(ang<1e-6){ return [o,d]; }
+    var out=[]; for(var i=0;i<=n;i++){ var t=i/n, s1=Math.sin((1-t)*ang)/Math.sin(ang), s2=Math.sin(t*ang)/Math.sin(ang);
+      var x=s1*x1+s2*x2,y=s1*y1+s2*y2,z=s1*z1+s2*z2;
+      out.push([Math.atan2(z,Math.sqrt(x*x+y*y))/R, Math.atan2(y,x)/R]); }
+    return out;
+  }
+  function draw(){
+    var rs=vis(), codes={}; rs.forEach(function(r){ codes[r.o]=1; codes[r.d]=1; });
+    var cs=Object.keys(codes).map(function(c){ return D.airports[c]; }).filter(Boolean);
+    var W=cv.clientWidth||320, H=cv.clientHeight||300, dpr=window.devicePixelRatio||1;
+    cv.width=W*dpr; cv.height=H*dpr; ctx.setTransform(dpr,0,0,dpr,0,0); ctx.clearRect(0,0,W,H);
+    if(!cs.length){ if(cap)cap.textContent='No mapped routes for this filter.'; return; }
+    var lats=cs.map(function(a){return a[0];}), lons=cs.map(function(a){return a[1];});
+    var minLa=Math.min.apply(null,lats),maxLa=Math.max.apply(null,lats),minLo=Math.min.apply(null,lons),maxLo=Math.max.apply(null,lons);
+    var kx=Math.cos(((minLa+maxLa)/2)*Math.PI/180)||0.3;
+    var pMinX=minLo*kx,pMaxX=maxLo*kx,pMinY=-maxLa,pMaxY=-minLa;
+    var spanX=Math.max(pMaxX-pMinX,0.6), spanY=Math.max(pMaxY-pMinY,0.6), pad=30;
+    var sc=Math.min((W-2*pad)/spanX,(H-2*pad)/spanY);
+    var offX=(W-spanX*sc)/2-pMinX*sc, offY=(H-spanY*sc)/2-pMinY*sc;
+    function P(lat,lon){ return [lon*kx*sc+offX, -lat*sc+offY]; }
+    ctx.strokeStyle=css('--line')||'#ccc'; ctx.lineWidth=1; ctx.globalAlpha=.5;
+    var st=15, lo0=Math.ceil(minLo/st)*st, la0=Math.ceil(minLa/st)*st, g;
+    for(g=lo0; g<=maxLo; g+=st){ var gx=P(0,g)[0]; ctx.beginPath(); ctx.moveTo(gx,0); ctx.lineTo(gx,H); ctx.stroke(); }
+    for(g=la0; g<=maxLa; g+=st){ var gy=P(g,0)[1]; ctx.beginPath(); ctx.moveTo(0,gy); ctx.lineTo(W,gy); ctx.stroke(); }
+    ctx.globalAlpha=1;
+    var accent=css('--accent')||'#005c46';
+    ctx.lineJoin='round'; ctx.lineCap='round';
+    rs.forEach(function(r){ var o=D.airports[r.o],d=D.airports[r.d]; if(!o||!d)return;
+      var pts=gc(o,d,48); ctx.beginPath();
+      for(var i=0;i<pts.length;i++){ var xy=P(pts[i][0],pts[i][1]); if(i===0)ctx.moveTo(xy[0],xy[1]); else ctx.lineTo(xy[0],xy[1]); }
+      ctx.strokeStyle=accent; ctx.globalAlpha=.5; ctx.lineWidth=Math.min(0.9+r.n*0.5,4.5); ctx.stroke();
+    });
+    ctx.globalAlpha=1;
+    var ink=css('--ink')||'#111';
+    ctx.font='600 10px "IBM Plex Mono",monospace'; ctx.textBaseline='alphabetic';
+    Object.keys(codes).forEach(function(c){ var a=D.airports[c]; if(!a)return; var xy=P(a[0],a[1]);
+      ctx.beginPath(); ctx.arc(xy[0],xy[1],3.2,0,6.2832); ctx.fillStyle=accent; ctx.fill();
+      ctx.fillStyle=ink; ctx.fillText(c, xy[0]+5, xy[1]-4);
+    });
+    if(cap){ var nf=0; rs.forEach(function(r){nf+=r.n;}); cap.textContent=rs.length+' routes · '+Object.keys(codes).length+' airports · '+nf+' flights'; }
+  }
+  var chips=[].slice.call(document.querySelectorAll('.yrchip'));
+  chips.forEach(function(b){ b.addEventListener('click',function(){ sel=b.getAttribute('data-y'); chips.forEach(function(x){x.classList.remove('on');}); b.classList.add('on'); draw(); }); });
+  draw(); window.addEventListener('resize',draw);
+})();`;
