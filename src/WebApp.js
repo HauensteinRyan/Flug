@@ -78,9 +78,19 @@ function buildModel(flights, now) {
   const airports = {};
   thisYearSegs.forEach(function (f) { if (f.origin) airports[f.origin] = 1; if (f.dest) airports[f.dest] = 1; });
 
+  // The hero is the next actual flight: the soonest segment not yet departed
+  // (kept for 6h after takeoff so an in-progress flight still shows).
+  const nowT = now.getTime();
+  const allSegs = flights.filter(function (f) { return f.departISO; }).slice().sort(cmpISO_);
+  let nextSeg = null;
+  for (let i = 0; i < allSegs.length; i++) {
+    const d = parseISO_(allSegs[i].departISO);
+    if (d && d.getTime() >= nowT - 6 * 3600000) { nextSeg = allSegs[i]; break; }
+  }
   let daysToNext = null;
-  if (upcoming.length && upcoming[0].start) {
-    daysToNext = Math.max(0, Math.round((upcoming[0].start - today) / 86400000));
+  if (nextSeg) {
+    const d = dayOnly_(parseISO_(nextSeg.departISO));
+    if (d) daysToNext = Math.max(0, Math.round((d - today) / 86400000));
   }
 
   // Months to draw in the calendar: any with a trip in a window around now,
@@ -124,6 +134,7 @@ function buildModel(flights, now) {
 
   return {
     next: upcoming.length ? upcoming[0] : null,
+    nextSeg: nextSeg,
     upcoming: upcoming, past: past.slice(0, 12),
     daysToNext: daysToNext, trips: trips, months: months, today: today,
     mapData: mapData,
@@ -183,11 +194,11 @@ function esc_(s) {
 }
 
 function renderPage(model) {
-  const hero = model.next ? renderHero_(model, model.next) : '';
+  const hero = model.nextSeg ? renderHero_(model, model.nextSeg) : '';
   const stats = model.empty ? '' : renderStats_(model);
   const map = model.empty ? '' : renderMap_(model);
   const cal = model.empty ? '' : renderCalendar_(model);
-  const up = model.upcoming.slice(model.next ? 1 : 0);
+  const up = model.upcoming;
   const upSection = up.length
     ? '<div class="lbl">Upcoming</div>' + up.map(function (t) { return renderTrip_(t, true); }).join('')
     : '';
@@ -205,40 +216,37 @@ function renderPage(model) {
     'Live status isn’t tracked — schedule only.</footer></div>' + FOOT_;
 }
 
-function renderHero_(model, t) {
-  const h = t.hero;
+function renderHero_(model, s) {
   const cd = model.daysToNext === 0 ? 'Today' : model.daysToNext === 1 ? 'Tomorrow'
     : model.daysToNext != null ? 'In ' + model.daysToNext + ' days' : '';
-  const stop = h.stops > 0
-    ? '<span class="stop mono">' + h.stops + ' STOP' + (h.stops > 1 ? 'S' : '') + (h.stopCodes.length ? ' · ' + esc_(h.stopCodes.join(' · ')) : '') + '</span>'
-    : '<span class="stop mono">NONSTOP</span>';
-  const fnos = h.flightNos.map(function (f) { return '<span class="fchip mono">' + esc_(f) + '</span>'; }).join('');
+  const fno = s.flightNo ? '<span class="fchip mono">' + esc_(s.flightNo) + '</span>' : '';
+  const gate = s.liveGate || s.depTerminal;
   return '<div class="lbl">Next flight' + (cd ? ' · ' + esc_(cd.toLowerCase()) : '') + '</div>' +
   '<section class="pass"><div class="pass-top">' +
-    '<div class="pass-eyebrow"><span>' + esc_(String(h.date || '').toUpperCase()) + '</span>' +
-      (h.confirmation ? '<span class="countdown mono">CONF&nbsp;' + esc_(h.confirmation) + '</span>' : '') + '</div>' +
+    '<div class="pass-eyebrow"><span>' + esc_(String(s.date || '').toUpperCase()) + '</span>' +
+      (s.confirmation ? '<span class="countdown mono">CONF&nbsp;' + esc_(s.confirmation) + '</span>' : '') + '</div>' +
     '<div class="route">' +
-      '<div class="port"><div class="code mono">' + esc_(h.origin || '–') + '</div></div>' +
+      '<div class="port"><div class="code mono">' + esc_(s.origin || '–') + '</div></div>' +
       '<div class="arc" aria-hidden="true"><svg viewBox="0 0 92 46" fill="none">' +
         '<path d="M4 40 C 30 2, 62 2, 88 40" stroke="currentColor" stroke-width="1.6" stroke-dasharray="3 4" opacity=".8"/>' +
-        '<circle cx="46" cy="9.4" r="2.6" fill="currentColor"/></svg>' + stop + '</div>' +
-      '<div class="port"><div class="code mono">' + esc_(h.dest || '–') + '</div></div></div>' +
+        '<circle cx="46" cy="9.4" r="2.6" fill="currentColor"/></svg><span class="stop mono">NONSTOP</span></div>' +
+      '<div class="port"><div class="code mono">' + esc_(s.dest || '–') + '</div></div></div>' +
     '<div class="pass-times">' +
-      '<div class="t"><div class="clock mono">' + esc_(h.depart || '–') + '</div><div class="sub">Depart ' + esc_(h.origin) + '</div></div>' +
-      '<div class="t r"><div class="clock mono">' + esc_(h.arrive || '–') + '</div><div class="sub">Arrive ' + esc_(h.dest) + '</div></div></div>' +
+      '<div class="t"><div class="clock mono">' + esc_(s.depart || '–') + '</div><div class="sub">Depart ' + esc_(s.origin) + (gate ? ' · Gate ' + esc_(gate) : '') + '</div></div>' +
+      '<div class="t r"><div class="clock mono">' + esc_(s.arrive || '–') + '</div><div class="sub">Arrive ' + esc_(s.dest) + '</div></div></div>' +
     '</div><div class="perf" aria-hidden="true"></div>' +
-    '<div class="pass-bot"><div class="flightnos">' + fnos + '</div>' +
-      heroStatus_(t) + '</div></section>';
+    '<div class="pass-bot"><div class="flightnos">' + fno + '</div>' +
+      heroStatus_(s) + '</div></section>';
 }
 
-function heroStatus_(t) {
-  const si = statusInfo_(t.segs[0]);
+function heroStatus_(s) {
+  const si = statusInfo_(s);
   const label = si ? si.label : 'Scheduled';
   const col = !si ? '#8fe6b6'
     : si.cls === 'warn' ? '#ffcf7a'
     : si.cls === 'crit' ? '#ff9b8a'
     : si.cls === 'muted' ? '#cfe0d6' : '#8fe6b6';
-  const ago = t.segs[0] ? agoText_(t.segs[0].statusUpdated) : '';
+  const ago = agoText_(s.statusUpdated);
   return '<span class="status" style="color:' + col + '"><span class="dot" style="background:' + col + '"></span>' +
     esc_(label) + (ago ? ' <span style="opacity:.7;font-weight:500">· ' + esc_(ago) + '</span>' : '') + '</span>';
 }
