@@ -48,9 +48,13 @@ function setup() {
   // Hourly live-status refresh (a no-op until FLIGHT_API_KEY is set; it only
   // hits the API for flights departing soon, so it stays inside the quota).
   ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'refreshStatus') ScriptApp.deleteTrigger(t);
+    const h = t.getHandlerFunction();
+    if (h === 'refreshStatus' || h === 'refreshPositions') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('refreshStatus').timeBased().everyHours(1).create();
+  // Live plane positions: every 5 min, but a no-op (no request) unless a
+  // flight is currently airborne.
+  ScriptApp.newTrigger('refreshPositions').timeBased().everyMinutes(5).create();
 
   console.log('Flug is set up. Scanning every ' + minutes + ' minutes; live status hourly.');
   if (!cfg('FLIGHT_API_KEY')) {

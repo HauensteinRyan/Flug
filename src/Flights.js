@@ -17,11 +17,13 @@ const SHEET_HEADERS = [
   'Source', 'Updated',
   'LiveStatus', 'DelayMin', 'LiveGate', 'LiveTerminal', 'StatusUpdated',
   'Hidden',
+  'LiveLat', 'LiveLon', 'PosUpdated',
 ];
 const COL = SHEET_HEADERS.length;
 const IDX_UPDATED = 19;          // 'Updated' column (0-based)
 const IDX_STATUS = 20;           // first live-status column (0-based); 1-based = 21
 const IDX_HIDDEN = 25;           // 'Hidden' column (0-based); 1-based = 26
+const IDX_POS = 26;              // 'LiveLat' column (0-based); 1-based = 27
 
 /** Find (or create) the Flug Flights spreadsheet and return its Flights tab. */
 function getFlightSheet_() {
@@ -98,6 +100,7 @@ function upsertFlights(segments) {
       seg.depTerminal || '', seg.arrTerminal || '', seg.source || '', now,
       '', '', '', '', '', // live-status columns — filled by refreshStatus, preserved on merge
       '', // Hidden — set by manual erase, preserved on merge
+      '', '', '', // LiveLat, LiveLon, PosUpdated — filled by refreshPositions
     ];
 
     if (key in idxOf) {
@@ -146,8 +149,26 @@ function readFlights() {
       liveGate: String(r[22] || ''), liveTerminal: String(r[23] || ''),
       statusUpdated: r[24] || '',
       hidden: String(r[25] || '').toUpperCase() === 'TRUE',
+      liveLat: r[26] === '' || r[26] == null ? null : Number(r[26]),
+      liveLon: r[27] === '' || r[27] == null ? null : Number(r[27]),
+      posUpdated: r[28] || '',
     };
   }).filter(function (f) { return f.flightNo || f.origin || f.dest; });
+}
+
+/** Store a live aircraft position for one flight row (by key). */
+function writePosition_(key, lat, lon) {
+  const sheet = getFlightSheet_();
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 2) return false;
+  const keys = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i][0] === key) {
+      sheet.getRange(i + 2, IDX_POS + 1, 1, 3).setValues([[lat, lon, new Date()]]);
+      return true;
+    }
+  }
+  return false;
 }
 
 /** Mark a flight hidden (manual erase). Survives re-sync (merge preserves it). */

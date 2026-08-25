@@ -51,13 +51,49 @@ function refreshStatus() {
     try { data = JSON.parse(resp.getContentText()); } catch (e) { Utilities.sleep(1100); continue; }
     const list = Array.isArray(data) ? data : (data && data.flights) ? data.flights : [];
     const leg = pickLeg_(list, f.origin);
-    if (leg) { writeStatus_(f.key, parseStatus_(leg)); updated++; }
+    if (leg) { const st = parseStatus_(leg); maybeAlert_(f, st); writeStatus_(f.key, st); updated++; }
     else { writeStatus_(f.key, { status: 'Unverified', updated: new Date() }); }
 
     Utilities.sleep(1100); // respect ~1 request/second
   }
 
   console.log('Status refresh: ' + targets.length + ' near-term flight(s), ' + calls + ' API call(s), ' + updated + ' updated.');
+}
+
+/**
+ * Email yourself when a flight's status meaningfully changes — a new delay,
+ * cancellation, boarding, or gate change. Compares the new reading against
+ * what was stored, and only fires on a real transition (so a flight that
+ * stays "Delayed" each hour doesn't re-notify).
+ */
+function maybeAlert_(f, st) {
+  if (!cfgBool('ALERTS_ENABLED')) return;
+  const oldInfo = statusInfo_({ liveStatus: f.liveStatus, delayMin: f.delayMin });
+  const newInfo = statusInfo_({ liveStatus: st.status, delayMin: st.delay });
+  const oldLabel = oldInfo ? oldInfo.label : '';
+  const newLabel = newInfo ? newInfo.label : '';
+  const gateChanged = st.gate && f.liveGate && st.gate !== f.liveGate;
+  const notable = newInfo && (newInfo.cls === 'warn' || newInfo.cls === 'crit' || newInfo.cls === 'accent');
+  if (!((newLabel && newLabel !== oldLabel && notable) || gateChanged)) return;
+
+  try {
+    const to = Session.getEffectiveUser().getEmail();
+    if (!to) return;
+    const subject = '✈ ' + f.flightNo + ' ' + f.origin + '→' + f.dest + ': ' + newLabel +
+      (gateChanged ? ' · gate ' + st.gate : '');
+    const body = [
+      f.flightNo + '   ' + f.origin + ' → ' + f.dest,
+      (f.date || '') + (f.depart ? '  ·  ' + f.depart : ''),
+      '',
+      'Now: ' + newLabel,
+      st.gate ? 'Gate: ' + st.gate : '',
+      st.terminal ? 'Terminal: ' + st.terminal : '',
+      '',
+      '— Flug live update',
+    ].filter(function (x) { return x !== ''; }).join('\n');
+    GmailApp.sendEmail(to, subject, body);
+    console.log('Alert emailed: ' + subject);
+  } catch (e) { console.error('Alert email failed: ' + e); }
 }
 
 /** Log the live-status values stored for each flight (to verify the data). */

@@ -131,10 +131,21 @@ function buildModel(flights, now) {
   });
   const mapAirports = {};
   Object.keys(used).forEach(function (c) { mapAirports[c] = coords[c]; });
+  // Live plane markers: flights with a recent (<40 min) stored position.
+  const planes = [];
+  flights.forEach(function (f) {
+    if (f.liveLat == null || f.liveLon == null || !f.posUpdated) return;
+    const pu = new Date(f.posUpdated).getTime();
+    if (!isNaN(pu) && now.getTime() - pu < 40 * 60000) {
+      planes.push({ lat: f.liveLat, lon: f.liveLon, flight: f.flightNo });
+    }
+  });
+
   const mapData = {
     airports: mapAirports,
     routes: Object.keys(routeMap).map(function (k) { return routeMap[k]; }),
     years: Object.keys(yearSet).map(Number).sort(function (a, b) { return b - a; }),
+    planes: planes,
   };
 
   return {
@@ -521,7 +532,13 @@ var MAP_JS = `(function(){
         ctx.beginPath(); ctx.arc(p[0],p[1],opts.labels?3.6:2.6,0,6.2832); ctx.fillStyle=accent; ctx.fill();
         ctx.fillStyle='#fff'; ctx.beginPath(); ctx.arc(p[0],p[1],1.2,0,6.2832); ctx.fill();
         if(opts.labels){ ctx.fillStyle=ink; ctx.fillText(c,p[0]+6,p[1]-5); } });
-      if(cap){ var nf=0; rs.forEach(function(x){nf+=x.n;}); cap.textContent=rs.length+' routes · '+Object.keys(codes).length+' airports · '+nf+' flights'+(opts.labels?' · drag to spin':''); }
+      // live plane markers
+      var planes=D.planes||[];
+      planes.forEach(function(pl){ var p=proj(pl.lat,pl.lon); if(!p[2])return;
+        ctx.beginPath(); ctx.arc(p[0],p[1],opts.labels?5.5:4.5,0,6.2832); ctx.fillStyle='#ffcf7a'; ctx.fill();
+        ctx.lineWidth=1.6; ctx.strokeStyle='#fff'; ctx.stroke();
+        if(opts.labels){ ctx.fillStyle=ink; ctx.fillText('✈ '+pl.flight, p[0]+8, p[1]+3); } });
+      if(cap){ var nf=0; rs.forEach(function(x){nf+=x.n;}); cap.textContent=rs.length+' routes · '+Object.keys(codes).length+' airports · '+nf+' flights'+(planes.length?' · '+planes.length+' in air':'')+(opts.labels?' · drag to spin':''); }
     }
     if(opts.interactive){
       function dn(e){dragging=true;var t=e.touches?e.touches[0]:e;lx=t.clientX;ly=t.clientY;}

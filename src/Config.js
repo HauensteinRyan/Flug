@@ -21,6 +21,8 @@ const DEFAULTS = {
   FLIGHT_API_HOST: 'aerodatabox.p.rapidapi.com',
   // Only refresh flights departing within this many hours (and up to 6h past).
   STATUS_WINDOW_HOURS: '48',
+  // Email yourself when a tracked flight changes (delay/cancel/gate/boarding).
+  ALERTS_ENABLED: 'true',
 
   // Forward matched confirmation emails to a travel app's email-import
   // address. Off by default — Flighty's email import needs a paid Pro plan;
