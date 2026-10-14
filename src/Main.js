@@ -129,6 +129,19 @@ function syncToFlighty(days) {
       const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
       const meta = classifyMessage(message, parsed);
       if (!meta || !meta.bookingConfirmation) continue;
+
+      // Only forward bookings with an UPCOMING flight. Flighty treats every
+      // forwarded email as upcoming, so forwarding a past (year-less) booking
+      // makes it land a year in the future. Past flights belong in Flighty via
+      // its in-app Search instead.
+      const segs = extractFlights(message);
+      const soonCutoff = Date.now() - 24 * 60 * 60 * 1000;
+      const hasUpcoming = segs.some(function (s) {
+        const d = s.depDate || (s.departISO ? new Date(s.departISO) : null);
+        return d && d.getTime() >= soonCutoff;
+      });
+      if (!hasUpcoming) continue;
+
       matched++;
       try {
         message.forward(to);
