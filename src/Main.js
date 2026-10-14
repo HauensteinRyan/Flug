@@ -96,6 +96,68 @@ function runFlightScan() {
     calendar: cfgBool('ADD_TO_CALENDAR'),
     store: cfgBool('STORE_FLIGHTS'),
   });
+  // Reconcile the calendar from stored flights too, so upcoming trips land
+  // on it even if their email was processed before (dedupe makes this cheap).
+  if (cfgBool('ADD_TO_CALENDAR')) {
+    try { syncCalendar(); } catch (e) { console.error('Calendar reconcile failed: ' + e); }
+  }
+}
+
+/**
+ * Forward every booking confirmation to Flighty (needs Flighty Pro + your
+ * Gmail linked in Flighty → Settings → Import Flights → Email Forwarding).
+ * Remembers what it has sent, so re-running continues rather than duplicating,
+ * and if Gmail's daily send quota is hit it stops and resumes next run.
+ */
+function syncToFlighty(days) {
+  const to = cfg('FLIGHTY_ADDRESS') || 'track@my.flightyapp.com';
+  const window = days || 365;
+  const threads = GmailApp.search(buildBookingQuery(window), 0, 150);
+  const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
+  const sent = loadFlightySent_();
+  let fwd = 0, matched = 0;
+
+  for (let t = 0; t < threads.length; t++) {
+    const messages = threads[t].getMessages();
+    for (let i = 0; i < messages.length; i++) {
+      const message = messages[i];
+      if (message.getDate() < cutoff) continue;
+      const subject = message.getSubject() || '';
+      if (/^fwd:/i.test(subject)) continue;
+      const id = message.getId();
+      if (sent.ids[id]) continue;
+      const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
+      const meta = classifyMessage(message, parsed);
+      if (!meta || !meta.bookingConfirmation) continue;
+      matched++;
+      try {
+        message.forward(to);
+        sent.ids[id] = true; sent.order.push(id); fwd++;
+        Utilities.sleep(400);
+      } catch (e) {
+        saveFlightySent_(sent);
+        console.warn('Forward stopped (likely Gmail daily quota): ' + e);
+        console.log('Forwarded ' + fwd + ' so far — re-run syncToFlighty tomorrow to continue.');
+        return;
+      }
+    }
+  }
+  saveFlightySent_(sent);
+  console.log('Flighty sync: forwarded ' + fwd + ' booking email(s) to ' + to +
+    ' (' + matched + ' matched). It can take a few minutes to appear in Flighty.');
+}
+
+function loadFlightySent_() {
+  const raw = PropertiesService.getScriptProperties().getProperty('FLUG_FLIGHTY_SENT');
+  const order = raw ? JSON.parse(raw) : [];
+  const ids = {};
+  order.forEach(function (x) { ids[x] = true; });
+  return { ids: ids, order: order };
+}
+
+function saveFlightySent_(sent) {
+  PropertiesService.getScriptProperties()
+    .setProperty('FLUG_FLIGHTY_SENT', JSON.stringify(sent.order.slice(-3000)));
 }
 
 /**
