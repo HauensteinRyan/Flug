@@ -66,6 +66,12 @@ function getAdminToken_() {
   return PropertiesService.getScriptProperties().getProperty('ADMIN_TOKEN') || '';
 }
 
+/** True for travel-agency emails Flighty can't parse (e.g. AmTrav). */
+function isAgencyEmail_(message) {
+  const from = (message.getFrom() || '').toLowerCase();
+  return from.indexOf('amtrav') !== -1 || from.indexOf('navan') !== -1;
+}
+
 /**
  * Remove a flight from the app (called from the web app's erase button).
  * Requires the admin token, so public viewers of the shared link can't
@@ -129,6 +135,7 @@ function syncToFlighty(days) {
       const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
       const meta = classifyMessage(message, parsed);
       if (!meta || !meta.bookingConfirmation) continue;
+      if (isAgencyEmail_(message)) continue; // Flighty can't parse AmTrav
 
       // Only forward bookings with an UPCOMING flight. Flighty treats every
       // forwarded email as upcoming, so forwarding a past (year-less) booking
@@ -426,7 +433,7 @@ function scan_(windowDays, opts) {
       if (!meta) return;
 
       meta.forwarded = false;
-      if (opts.forward && meta.forwardable) {
+      if (opts.forward && meta.forwardable && !isAgencyEmail_(message)) {
         try {
           message.forward(cfg('FLIGHTY_ADDRESS'));
           meta.forwarded = true;
