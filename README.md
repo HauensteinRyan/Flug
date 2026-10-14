@@ -112,6 +112,8 @@ All settings live in **Project Settings → Script Properties** (defaults in
 | `CHAT_WEBHOOK_URL` | *(empty)* | Google Chat incoming-webhook URL. Empty = no Chat posts. |
 | `FORWARD_TO_FLIGHTY` | `true` | Auto-forward confirmations to Flighty. |
 | `FLIGHTY_ADDRESS` | `track@my.flightyapp.com` | Flighty's email-import address. |
+| `FORWARD_AGENCY_TO_TRIPIT` | `false` | Send agency (AmTrav/Navan) bookings — which Flighty can't read — to TripIt instead; Flighty Pro then syncs them from TripIt. |
+| `TRIPIT_ADDRESS` | `plans@tripit.com` | TripIt's email-import address. |
 | `ADD_TO_CALENDAR` | `true` | Create Google Calendar events for detected flights. |
 | `CALENDAR_ID` | *(empty)* | Empty = your default calendar. Or a calendar ID (calendar settings → "Integrate calendar") to keep flights in their own calendar. |
 | `FLIGHT_EVENT_HOURS` | `3` | Event length when a departure time was parsed (all-day event otherwise). |

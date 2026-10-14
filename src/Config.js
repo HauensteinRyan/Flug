@@ -30,6 +30,10 @@ const DEFAULTS = {
   // point FLIGHTY_ADDRESS wherever you want if you use one of those.
   FORWARD_TO_FLIGHTY: 'false',
   FLIGHTY_ADDRESS: 'track@my.flightyapp.com',
+  // Flighty can't read travel-agency (AmTrav) emails, but TripIt can — and
+  // Flighty Pro syncs from TripIt. Set 'true' to route agency bookings there.
+  FORWARD_AGENCY_TO_TRIPIT: 'false',
+  TRIPIT_ADDRESS: 'plans@tripit.com',
 
   // Sync trips to Google Calendar (one tied-together event per trip).
   ADD_TO_CALENDAR: 'true',

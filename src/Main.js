@@ -73,6 +73,18 @@ function isAgencyEmail_(message) {
 }
 
 /**
+ * Where to forward a booking email so it ends up in Flighty: airline emails
+ * go straight to Flighty; agency emails (which Flighty can't read) go to
+ * TripIt, which parses them and syncs into Flighty Pro. '' = don't forward.
+ */
+function forwardTarget_(message) {
+  if (isAgencyEmail_(message)) {
+    return cfgBool('FORWARD_AGENCY_TO_TRIPIT') ? (cfg('TRIPIT_ADDRESS') || 'plans@tripit.com') : '';
+  }
+  return cfg('FLIGHTY_ADDRESS') || 'track@my.flightyapp.com';
+}
+
+/**
  * Remove a flight from the app (called from the web app's erase button).
  * Requires the admin token, so public viewers of the shared link can't
  * delete anything. Hides the row rather than deleting, so a re-sync from
@@ -116,7 +128,6 @@ function runFlightScan() {
  * and if Gmail's daily send quota is hit it stops and resumes next run.
  */
 function syncToFlighty(days) {
-  const to = cfg('FLIGHTY_ADDRESS') || 'track@my.flightyapp.com';
   const window = days || 365;
   const threads = GmailApp.search(buildBookingQuery(window), 0, 150);
   const cutoff = new Date(Date.now() - window * 24 * 60 * 60 * 1000);
@@ -130,12 +141,15 @@ function syncToFlighty(days) {
       if (message.getDate() < cutoff) continue;
       const subject = message.getSubject() || '';
       if (/^fwd:/i.test(subject)) continue;
-      const id = message.getId();
+      const to = forwardTarget_(message); // agency → TripIt, airline → Flighty
+      if (!to) continue;
+      // Dedupe per destination, so agency emails that once went to Flighty
+      // (and were rejected there) still get sent to TripIt.
+      const id = (isAgencyEmail_(message) ? 'tripit:' : '') + message.getId();
       if (sent.ids[id]) continue;
       const parsed = parseFlightInfo(subject, message.getPlainBody() || '');
       const meta = classifyMessage(message, parsed);
       if (!meta || !meta.bookingConfirmation) continue;
-      if (isAgencyEmail_(message)) continue; // Flighty can't parse AmTrav
 
       // Only forward bookings with an UPCOMING flight. Flighty treats every
       // forwarded email as upcoming, so forwarding a past (year-less) booking
@@ -163,8 +177,8 @@ function syncToFlighty(days) {
     }
   }
   saveFlightySent_(sent);
-  console.log('Flighty sync: forwarded ' + fwd + ' booking email(s) to ' + to +
-    ' (' + matched + ' matched). It can take a few minutes to appear in Flighty.');
+  console.log('Flighty sync: forwarded ' + fwd + ' booking email(s) (' + matched +
+    ' matched; airline → Flighty, AmTrav → TripIt). It can take a few minutes to appear in Flighty.');
 }
 
 function loadFlightySent_() {
@@ -433,9 +447,10 @@ function scan_(windowDays, opts) {
       if (!meta) return;
 
       meta.forwarded = false;
-      if (opts.forward && meta.forwardable && !isAgencyEmail_(message)) {
+      const fwdTo = opts.forward && meta.forwardable ? forwardTarget_(message) : '';
+      if (fwdTo) {
         try {
-          message.forward(cfg('FLIGHTY_ADDRESS'));
+          message.forward(fwdTo);
           meta.forwarded = true;
         } catch (e) {
           console.error('Forward to Flighty failed for "' + message.getSubject() + '": ' + e);
